@@ -302,58 +302,6 @@ BEGIN_PROLOG
           minClusterPEs : 60  //higher threshold
         },
         {
-          CRVSector : "D1"
-          PEthreshold : 8
-          maxTimeDifferenceAdjacentPulses : 10
-          maxTimeDifference : 10
-          minOverlapTimeAdjacentPulses : 30
-          minOverlapTime : 30
-          minSlope :-11
-          maxSlope : 11
-          maxSlopeDifference : 4
-          coincidenceLayers : 4   //to suppress high rate
-          minClusterPEs : 0
-        },
-        {
-          CRVSector : "D2"
-          PEthreshold : 8
-          maxTimeDifferenceAdjacentPulses : 10
-          maxTimeDifference : 10
-          minOverlapTimeAdjacentPulses : 30
-          minOverlapTime : 30
-          minSlope :-11
-          maxSlope : 11
-          maxSlopeDifference : 4
-          coincidenceLayers : 4   //to suppress high rate
-          minClusterPEs : 0
-        },
-        {
-          CRVSector : "D3"
-          PEthreshold : 8
-          maxTimeDifferenceAdjacentPulses : 10
-          maxTimeDifference : 10
-          minOverlapTimeAdjacentPulses : 30
-          minOverlapTime : 30
-          minSlope :-11
-          maxSlope : 11
-          maxSlopeDifference : 4
-          coincidenceLayers : 4   //to suppress high rate
-          minClusterPEs : 0
-        },
-        {
-          CRVSector : "D4"
-          PEthreshold : 8
-          maxTimeDifferenceAdjacentPulses : 10
-          maxTimeDifference : 10
-          minOverlapTimeAdjacentPulses : 30
-          minOverlapTime : 30
-          minSlope :-11
-          maxSlope : 11
-          maxSlopeDifference : 4
-          coincidenceLayers : 4   //to suppress high rate
-          minClusterPEs : 0
-        },
-        {
           CRVSector : "C1"
           PEthreshold : 8
           maxTimeDifferenceAdjacentPulses : 10
