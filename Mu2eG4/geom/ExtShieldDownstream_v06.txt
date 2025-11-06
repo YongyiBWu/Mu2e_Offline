@@ -279,36 +279,36 @@ vector<double> ExtShieldDownstream.tolsType29 = {0,0,0}; // new endcap top back
 vector<double> ExtShieldDownstream.tolsType30 = {0,0,0}; // new endcap top front
 
 // Materials for each type of box.  Here, Concrete and Iron.
-string ExtShieldDownstream.materialType1   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType2   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType3   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType4   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType5   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType6   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType7   = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType1   = "G4_AIR";
+string ExtShieldDownstream.materialType2   = "G4_AIR";
+string ExtShieldDownstream.materialType3   = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType4   = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType5   = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType6   = "G4_AIR";
+string ExtShieldDownstream.materialType7   = "G4_AIR";
 string ExtShieldDownstream.materialType8   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType9   = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType10  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType9   = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType10  = "G4_AIR";
 string ExtShieldDownstream.materialType11  = "CONCRETE_MARS";
 string ExtShieldDownstream.materialType12  = "CONCRETE_MARS";
 string ExtShieldDownstream.materialType13  = "CONCRETE_MARS";
 string ExtShieldDownstream.materialType14  = "CONCRETE_MARS";// ec floor
-string ExtShieldDownstream.materialType15  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType15  = "CONCRETE_MARS";//...
 string ExtShieldDownstream.materialType16  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType17  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType17  = "CONCRETE_MARS";// around PS
 string ExtShieldDownstream.materialType18  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType19  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType19  = "CONCRETE_MARS";//...
 string ExtShieldDownstream.materialType20  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType21  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType22  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType23  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType21  = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType22  = "G4_AIR";
+string ExtShieldDownstream.materialType23  = "G4_AIR";
 string ExtShieldDownstream.materialType24  = "CONCRETE_MASONRY";
-string ExtShieldDownstream.materialType25  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType26  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType27  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType28  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType29  = "CONCRETE_MARS";
-string ExtShieldDownstream.materialType30  = "CONCRETE_MARS";
+string ExtShieldDownstream.materialType25  = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType26  = "CONCRETE_MARS";//...
+string ExtShieldDownstream.materialType27  = "G4_AIR";
+string ExtShieldDownstream.materialType28  = "G4_AIR";
+string ExtShieldDownstream.materialType29  = "G4_AIR";
+string ExtShieldDownstream.materialType30  = "G4_AIR";
 
 // The position of each shield block in Mu2e Offline coordinates
 //Start with 20 regular concrete wall T-blocks.  10 on north side then 10 south

@@ -28,29 +28,13 @@ BEGIN_PROLOG
       module_type               : CrvPhotonGenerator
       crvStepModuleLabels       : @nil
       crvStepProcessNames       : @nil
-      CRVSectors                : ["R1","R2","R3","R4","R5","R6","L1","L2","L3","T1","T2","T3","T4","T5","E1","E2","U","C1","C2","C3","C4"] //used only to match the vector entries below
-      reflectors                : [  0 ,  0 , -1 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  1 ,  1 ,  0 ,  0 ,  0 , -1 , -1 , 1 ,  1 , -1 , -1 , -1 ]
-      lookupTableFileNames      : ["CRVConditions/v6_0/LookupTable_4550_0",  //R1
-                                   "CRVConditions/v6_0/LookupTable_4550_0",  //R2
-                                   "CRVConditions/v6_0/LookupTable_1045_1",  //R3
-                                   "CRVConditions/v6_0/LookupTable_3040_0",  //R4
-                                   "CRVConditions/v6_0/LookupTable_4550_0",  //R5
-                                   "CRVConditions/v6_0/LookupTable_3200_0",  //R6
-                                   "CRVConditions/v6_0/LookupTable_4550_0",  //L1
-                                   "CRVConditions/v6_0/LookupTable_4550_0",  //L2
-                                   "CRVConditions/v6_0/LookupTable_3200_0",  //L3
-                                   "CRVConditions/v6_0/LookupTable_6000_1",  //T1
+      CRVSectors                : ["T1","T2","T3","T4","T5"] //used only to match the vector entries below
+      reflectors                : [  1 ,  1 ,  0 ,  0 ,  0 ]
+      lookupTableFileNames      : ["CRVConditions/v6_0/LookupTable_6000_1",  //T1
                                    "CRVConditions/v6_0/LookupTable_6000_1",  //T2
                                    "CRVConditions/v6_0/LookupTable_6000_0",  //T3
                                    "CRVConditions/v6_0/LookupTable_6000_0",  //T4
-                                   "CRVConditions/v6_0/LookupTable_6000_0",  //T5
-                                   "CRVConditions/v6_0/LookupTable_5000_1",  //E1
-                                   "CRVConditions/v6_0/LookupTable_5000_1",  //E2
-                                   "CRVConditions/v6_0/LookupTable_6900_1",  //U
-                                   "CRVConditions/v6_0/LookupTable_900_1",   //C1
-                                   "CRVConditions/v6_0/LookupTable_900_1",   //C2
-                                   "CRVConditions/v6_0/LookupTable_2100_1",  //C3
-                                   "CRVConditions/v6_0/LookupTable_1550_1"]  //C4
+                                   "CRVConditions/v6_0/LookupTable_6000_0"]  //T5
 
                                 //all measurements were done at 1m away from SiPM with a reference date of 12/2023
                                 //CRV-Top (1.8mm) modules: 39794 - based on comparison between Wideband measurements and fined-tuned simulation
@@ -66,12 +50,7 @@ BEGIN_PROLOG
                                 //all other modules:       28573 - counters come from scintillator batch 2, with a photon yield ratio of 1.07/1.14
                                 //CRV-U, CRV-TS-Ext:       23811 - reference CRV-Top (1.8mm) was measured at 3.0V overvoltage,
                                 //                         but CRV-U/CRV-TS-Ext will run at 2.5V --> scale to 2.5/3.0
-      scintillationYields       : [28573,28573,30442,28573,28573,28573,  //R1...6
-                                   28573,28573,28573,                    //L1...3
-                                   30442,30442,39794,39794,30442,        //T1...5
-                                   23811,23811,                          //E1,E2
-                                   23811,                                //U
-                                   0,0,28573,28573]                      //C1...4
+      scintillationYields       : [30442,30442,39794,39794,30442]        //T1...5
 
       photonYieldScaleFactor                : 0.91  //scale factor applied to photon yields to mimic aging
                                                     //of 3 years with a rate 3% per year (from 12/2023 to 12/2026)
