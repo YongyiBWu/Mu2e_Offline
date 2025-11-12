@@ -49,8 +49,8 @@ physics: {
       EnergyCalib : @local::HPGeDigitization.EnergyPerADCBin
     }
   }
-  o1 : @nil
+  o1 : [Stage1virtualdetector]
   end_paths: [o1]
 }
 
-services.TFileService.fileName : @nil
+services.TFileService.fileName : "/exp/mu2e/data/users/yongyiwu/stm_pawel/sim.plesniak.Stage1.Ele1.root"
