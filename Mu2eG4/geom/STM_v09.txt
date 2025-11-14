@@ -234,6 +234,10 @@ double stm.magnet.stand.topExtraLength = -200.0; // reduce length of table to av
 double stm.shieldingHolePoly.rOut = 127.0; // diameter of ECS hole is 254 mm
 double stm.ifbPoly.rOut = 127.0;
 
+string stm.FOVcollimator.material        = "G4_AIR";
+string stm.FOVcollimator.plug.material   = "G4_AIR";
+bool   stm.magnet.stand.build = false;
+
 // decouple the VD sizes from the size of the CRS, which is not there for geom_run1_a.txt
 double stm.upstreamVDs.xHalfLength = 2850.;
 
