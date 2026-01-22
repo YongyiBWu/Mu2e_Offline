@@ -53,4 +53,4 @@ physics: {
   end_paths: [o1]
 }
 
-services.TFileService.fileName : "/exp/mu2e/data/users/yongyiwu/stm_pawel/sim.plesniak.Stage1.Ele1.root"
+services.TFileService.fileName : @nil

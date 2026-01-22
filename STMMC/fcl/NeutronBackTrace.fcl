@@ -1,0 +1,34 @@
+# Extracts neutrons from STM propagation scripts into ROOT TTrees and back trace them
+# Edit services.TFileService.fileName before running!
+# Run as: $ mu2e -c NeutronBackTrace.fcl -S FileWithListOfDataFiles.txt
+#
+# Author: Yongyi Wu
+
+#include "Offline/STMMC/fcl/prolog.fcl"
+#include "Offline/fcl/standardServices.fcl"
+
+process_name: NeutronBackTrace
+
+source : {
+  module_type : RootInput
+  fileNames: @nil
+}
+services : {
+  message : @local::default_message
+  GlobalConstantsService : {
+    inputFile : "Offline/GlobalConstantsService/data/globalConstants_01.txt"
+  }
+}
+physics: {
+  analyzers : {
+    NeutronBackTracer : {
+      module_type : NeutronGenealogyBackTrace
+      StepPointMCsTag : @local::SimplifyStage1Data.StepPointMCsTag
+      SimParticlemvTag : @local::SimplifyStage1Data.SimParticlemvTag
+    }
+  }
+  o1 : [NeutronBackTracer]
+  end_paths: [o1]
+}
+
+services.TFileService.fileName : @nil
