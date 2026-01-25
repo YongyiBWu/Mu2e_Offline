@@ -107,6 +107,13 @@ namespace mu2e {
       }
     }
 
+    void addDaughterTreeSPSuperSet(SPSuperSet *res, const art::Ptr<SimParticle>& p) {
+      for(const auto& d : p->daughters()) {
+        (*res)[d.id()].insert(d);
+        addDaughterTreeSPSuperSet(res, d);
+      }
+    }
+
   } // anonymous namespace
 
   //================================================================
@@ -367,6 +374,7 @@ namespace mu2e {
       for(const auto& particle : *ih) {
         if(vetoedParticles.find(particle) == vetoedParticles.end()) {
           toBeKept[particle.id()].insert(particle);
+          addDaughterTreeSPSuperSet(&toBeKept, particle);
         }
       }
     }
