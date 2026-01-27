@@ -7,6 +7,8 @@
 // 2. Tree with the particle genealogy, "ttree_genealogy"
 //    with corresponding particle index in the file, then hit time, PDG ID, creation code,kinetic energy, positions x, y, and z of each parent particle
 //    in branches "index", "startGlobalTime", "endGlobalTime", "pdgId", "creationCode", "E", "x", "y", and "z" respectively.
+// 3. Tree with the particle generation information, "ttree_source"
+//    with the info of the first particle in the genealogy chain that has the same pdgId as the particle in the virtualdetector
 // Adapted by: Yongyi Wu
 
 // stdlib includes
@@ -62,6 +64,7 @@ namespace mu2e {
       GlobalConstantsHandle<ParticleDataList> pdt;
 
       double mass = 0.0;
+      bool ttree_source_filled = false;
       // Data members for the ttree TTree
       int ttree_index = -1;
       double ttree_time = 0.0;
@@ -101,9 +104,19 @@ namespace mu2e {
       double ttree_genealogy_endpx = 0.0;
       double ttree_genealogy_endpy = 0.0;
       double ttree_genealogy_endpz = 0.0;
+      // Data members for the ttree_source TTree
+      int ttree_source_index = -1;
+      double ttree_source_starttime = 0.0;
+      double ttree_source_parentendtime = 0.0;
+      int ttree_source_creationCode = 0;
+      int ttree_source_parentpdgId = 0;
+      double ttree_source_x = 0.0;
+      double ttree_source_y = 0.0;
+      double ttree_source_z = 0.0;
 
       TTree* ttree;
       TTree* ttree_genealogy;
+      TTree* ttree_source;
 
       std::map<int, int> pdgIds; // <id, count>
   };
@@ -153,6 +166,16 @@ namespace mu2e {
       ttree_genealogy->Branch("endpx", &ttree_genealogy_endpx, "endpx/D"); // MeV/c
       ttree_genealogy->Branch("endpy", &ttree_genealogy_endpy, "endpy/D"); // MeV/c
       ttree_genealogy->Branch("endpz", &ttree_genealogy_endpz, "endpz/D"); // MeV/c
+
+      ttree_source = tfs->make<TTree>("ttree_source", "Particle source information");
+      ttree_source->Branch("index", &ttree_source_index, "index/I");
+      ttree_source->Branch("starttime", &ttree_source_starttime, "starttime/D"); // ns
+      ttree_source->Branch("parentendtime", &ttree_source_parentendtime, "parentendtime/D"); // ns
+      ttree_source->Branch("creationCode", &ttree_source_creationCode, "creationCode/I");
+      ttree_source->Branch("parentpdgId", &ttree_source_parentpdgId, "parentpdgId/I");
+      ttree_source->Branch("x", &ttree_source_x, "x/D"); // mm
+      ttree_source->Branch("y", &ttree_source_y, "y/D"); // mm
+      ttree_source->Branch("z", &ttree_source_z, "z/D"); // mm
     };
 
   void VDTreeParticleGenealogyBackTrace::analyze(const art::Event& event) {
@@ -194,6 +217,14 @@ namespace mu2e {
         throw cet::exception("LogicError", "Energy is negative");
       ttree->Fill();
 
+      ttree_source_filled = false;
+      ttree_source_parentpdgId = particle->pdgId();
+      ttree_source_x = particle->startPosition().x();
+      ttree_source_y = particle->startPosition().y();
+      ttree_source_z = particle->startPosition().z();
+      ttree_source_starttime = particle->startGlobalTime();
+      ttree_source_creationCode = particle->creationCode();
+
       // Fill the genealogy tree
       while (particle->hasParent()) {
         particle = particle->parent();
@@ -219,6 +250,23 @@ namespace mu2e {
         if (ttree_genealogy_E < 0)
           throw cet::exception("LogicError", "Energy is negative");
         ttree_genealogy->Fill();
+
+        if (!ttree_source_filled) {
+          if (ttree_source_parentpdgId == particle->pdgId()) {
+            ttree_source_x = particle->startPosition().x();
+            ttree_source_y = particle->startPosition().y();
+            ttree_source_z = particle->startPosition().z();
+            ttree_source_starttime = particle->startGlobalTime();
+            ttree_source_creationCode = particle->creationCode();
+          }
+          else {
+            ttree_source_parentpdgId = particle->pdgId();
+            ttree_source_parentendtime = particle->endGlobalTime();
+            ttree_source_filled = true;
+            ttree_source_index = ttree_index;
+            ttree_source->Fill();
+          }
+        }
       }
 
       // Generate the data summary
