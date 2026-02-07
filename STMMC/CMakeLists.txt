@@ -83,6 +83,22 @@ cet_build_plugin(VirtualDetectorTree art::module
       Offline::MCDataProducts
 )
 
+cet_build_plugin(NeutronGenealogyBackTrace art::module
+    REG_SOURCE src/NeutronGenealogyBackTrace_module.cc
+    LIBRARIES REG
+      art_root_io::TFileService_service
+      Offline::GlobalConstantsService
+      Offline::MCDataProducts
+)
+
+cet_build_plugin(VDTreeParticleGenealogyBackTrace art::module
+    REG_SOURCE src/VDTreeParticleGenealogyBackTrace_module.cc
+    LIBRARIES REG
+      art_root_io::TFileService_service
+      Offline::GlobalConstantsService
+      Offline::MCDataProducts
+)
+
 
 install_source(SUBDIRS src)
 install_fhicl(SUBDIRS fcl SUBDIRNAME Offline/STMMC/fcl)
