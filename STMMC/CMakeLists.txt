@@ -50,6 +50,14 @@ cet_build_plugin(PHTree art::module
       Offline::RecoDataProducts
 )
 
+cet_build_plugin(ParticleTracer art::module
+    REG_SOURCE src/ParticleTracer_module.cc
+    LIBRARIES REG
+      art_root_io::TFileService_service
+      Offline::GlobalConstantsService
+      Offline::MCDataProducts
+)
+
 cet_build_plugin(ShiftVirtualDetectorStepPointMCs art::module
     REG_SOURCE src/ShiftVirtualDetectorStepPointMCs_module.cc
     LIBRARIES REG
