@@ -71,16 +71,24 @@ namespace mu2e {
         fhicl::Atom<art::InputTag> MCTrajectoriesTag{Name("MCTrajectoriesTag"), Comment("Tag identifying the MCTrajectoryCollection"), art::InputTag("g4run")};
         fhicl::Sequence<int> pdgIDs{                 Name("pdgIDs"),             Comment("PDG codes of the StepPointMC particles to trace"), std::vector<int>{2112}};
         fhicl::Atom<bool> keepAllPdgIds{             Name("keepAllPdgIds"),      Comment("If true (or pdgIDs is empty), trace every StepPointMC particle"), false};
+        fhicl::Atom<bool> keepParticlesWithPositivePz{ Name("keepParticlesWithPositivePz"), Comment("If true, only seed from StepPointMCs whose momentum pz > 0"), false};
       };
       using Parameters = art::EDAnalyzer::Table<Config>;
       explicit ParticleTracer(const Parameters& conf);
       void analyze(const art::Event& e);
       void endJob();
     private:
+      typedef cet::map_vector_key key_type;
+      typedef std::map<key_type, const MCTrajectory*> TrajIndex;
+
       // Fill the point/genealogy branches for one SimParticle's trajectory and Fill() the
-      // tree. Returns true if the particle had a stored trajectory (and an entry was written).
+      // tree. The trajectory is matched by SimParticle key (map_vector_key) rather than by
+      // art::Ptr, since the StepPointMC/SimParticle collection and the MCTrajectory
+      // collection are generally different products (e.g. compressed vs. g4run) whose Ptrs
+      // do not compare equal. Genealogy is walked via the SimParticle parent art::Ptrs.
+      // Returns true if the particle had a stored trajectory.
       bool writeTrajectory(const art::Ptr<SimParticle>& simPtr,
-                           const MCTrajectoryCollection& coll,
+                           const TrajIndex& trajIndex,
                            bool matchedStep);
 
       art::ProductToken<StepPointMCCollection> StepPointMCsToken;
@@ -88,6 +96,7 @@ namespace mu2e {
       art::ProductToken<MCTrajectoryCollection> MCTrajectoriesToken;
       std::set<int> pdgIDs;
       bool keepAllPdgIds = false;
+      bool keepParticlesWithPositivePz = false;
       GlobalConstantsHandle<ParticleDataList> pdt;
 
       // TTree + branch buffers (one entry per trajectory)
@@ -103,7 +112,8 @@ namespace mu2e {
       std::vector<int> ancestorPdgIds;
 
       std::map<int, int> vdHitCounts;          // <pdgId, number of matching StepPointMC (VD) hits>
-      std::set<unsigned int> writtenThisEvent; // simIds already written in the current event
+      std::map<int, int> tracedBackCounts;     // <pdgId, matching hits whose particle had a stored trajectory>
+      std::set<key_type> writtenThisEvent;     // simIds already written in the current event
   };
 
   ParticleTracer::ParticleTracer(const Parameters& conf) :
@@ -111,7 +121,8 @@ namespace mu2e {
     StepPointMCsToken(consumes<StepPointMCCollection>(conf().StepPointMCsTag())),
     SimParticlemvToken(consumes<SimParticleCollection>(conf().SimParticlemvTag())),
     MCTrajectoriesToken(consumes<MCTrajectoryCollection>(conf().MCTrajectoriesTag())),
-    keepAllPdgIds(conf().keepAllPdgIds()) {
+    keepAllPdgIds(conf().keepAllPdgIds()),
+    keepParticlesWithPositivePz(conf().keepParticlesWithPositivePz()) {
       const std::vector<int>& ids = conf().pdgIDs();
       pdgIDs.insert(ids.begin(), ids.end());
 
@@ -140,38 +151,34 @@ namespace mu2e {
     };
 
   bool ParticleTracer::writeTrajectory(const art::Ptr<SimParticle>& simPtr,
-                                       const MCTrajectoryCollection& coll,
+                                       const TrajIndex& trajIndex,
                                        bool matchedStep) {
-    if (!simPtr.isAvailable()) {
-      mf::LogWarning("ParticleTracer")
-        << "SimParticle Ptr (key " << simPtr.key() << ") is unavailable"
-        << (matchedStep ? " (matched StepPointMC particle)" : " (ancestor)")
-        << "; skipping its trajectory. Genealogy may be truncated in this file.";
-      return false;
-    }
+    const key_type key(simPtr.key());
 
     // Only write each particle once per event.
-    if (!writtenThisEvent.insert(simPtr.key()).second)
+    if (!writtenThisEvent.insert(key).second)
       return false;
 
-    // Look up this particle's trajectory; absent if it didn't pass the G4 trajectory cuts.
-    auto traj_it = coll.find(simPtr);
-    if (traj_it == coll.end()) {
+    const SimParticle& sim = *simPtr;
+
+    // Look up this particle's trajectory by key; absent if it didn't pass the G4
+    // trajectory cuts (or wasn't produced for this particle).
+    auto traj_it = trajIndex.find(key);
+    if (traj_it == trajIndex.end()) {
       mf::LogWarning("ParticleTracer")
-        << "No MCTrajectory found for SimParticle (key " << simPtr.key()
-        << ", pdgId " << simPtr->pdgId() << ")"
+        << "No MCTrajectory found for SimParticle (key " << key
+        << ", pdgId " << sim.pdgId() << ")"
         << (matchedStep ? " (matched StepPointMC particle)" : " (ancestor)")
         << "; skipping. It likely did not pass the G4 trajectory cuts.";
       return false;
     }
-    const MCTrajectory& traj = traj_it->second;
+    const MCTrajectory& traj = *traj_it->second;
 
-    const SimParticle& sim = *simPtr;
     pdgId = sim.pdgId();
     matched = matchedStep;
     const double mass = pdt->particle(pdgId).mass();
 
-    simId = simPtr.key();
+    simId = key.asUint();
     nPoints = traj.size();
     x.clear(); y.clear(); z.clear(); t.clear(); kE.clear(); E.clear();
     for (auto const& p : traj.points()) {
@@ -183,7 +190,8 @@ namespace mu2e {
       E.push_back(p.kineticEnergy() + mass);
     }
 
-    // Genealogy: immediate parent + full ancestor chain walked to the primary.
+    // Genealogy: immediate parent + full ancestor chain walked to the primary via the
+    // SimParticle parent art::Ptrs (key and pdgId read out correctly from these).
     isPrimary = sim.isPrimary();
     creationCode = sim.creationCode().id();
     parentSimId = -1;
@@ -223,6 +231,14 @@ namespace mu2e {
     event = evt.id().event();
     writtenThisEvent.clear();
 
+    // Index the trajectories by SimParticle key (map_vector_key). We match on the key
+    // rather than the art::Ptr because the StepPointMC/SimParticle collection and the
+    // MCTrajectory collection are generally different products (e.g. compressed vs. g4run)
+    // whose Ptrs do not compare equal, even though the keys are preserved.
+    TrajIndex trajIndex;
+    for (auto const& i : trajectories)
+      trajIndex.emplace(key_type(i.first.key()), &i.second); // i.first is the SimParticle Ptr (its key == simid)
+
     for (const StepPointMC& step : steps) {
       const art::Ptr<SimParticle>& simPtr = step.simParticle();
       if (!simPtr.isAvailable()) {
@@ -238,16 +254,23 @@ namespace mu2e {
           pdgIDs.find(stepPdgId) == pdgIDs.end())
         continue;
 
+      // Optional pz filter on the StepPointMC momentum at this hit.
+      if (keepParticlesWithPositivePz && step.momentum().z() <= 0)
+        continue;
+
       // Count this VD hit (one per matching StepPointMC, keyed by the hit particle's PDG;
       // not deduplicated -- this is the raw hit multiplicity on the StepPointMC volume).
       ++vdHitCounts[stepPdgId];
 
       // Write the matched particle's trajectory, then every ancestor up to the primary
-      // (regardless of the ancestor's PDG).
-      writeTrajectory(simPtr, trajectories, true);
+      // (regardless of the ancestor's PDG), walking genealogy via the parent art::Ptrs.
+      const bool traced = writeTrajectory(simPtr, trajIndex, true);
+      if (traced)
+        ++tracedBackCounts[stepPdgId];
+
       art::Ptr<SimParticle> anc = simPtr->parent();
       while (anc.isAvailable()) {
-        writeTrajectory(anc, trajectories, false);
+        writeTrajectory(anc, trajIndex, false);
         anc = anc->parent();
       }
     }
@@ -257,8 +280,13 @@ namespace mu2e {
   void ParticleTracer::endJob() {
     mf::LogInfo log("ParticleTracer summary");
     log << "========= StepPointMC (VD) hits per PDG ID =========\n";
-    for (auto const& part : vdHitCounts)
-      log << "PDGID " << part.first << ": " << part.second << "\n";
+    log << "(hits = matching StepPointMCs; traced = those whose particle had a stored trajectory)\n";
+    for (auto const& part : vdHitCounts) {
+      auto it = tracedBackCounts.find(part.first);
+      const int traced = (it != tracedBackCounts.end()) ? it->second : 0;
+      log << "PDGID " << part.first << ": hits " << part.second
+          << ", traced " << traced << "\n";
+    }
     log << "===================================================\n";
   };
 }; // end namespace mu2e

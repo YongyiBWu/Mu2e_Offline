@@ -32,9 +32,10 @@ physics : {
       module_type      : ParticleTracer
       StepPointMCsTag  : "compressDetStepMCsSTM:"   # StepPointMCs to seed from
       SimParticlemvTag : "compressDetStepMCsSTM:"   # SimParticleCollection
-      MCTrajectoriesTag : "g4run:"                  # MCTrajectoryCollection
+      MCTrajectoriesTag : "g4run"                  # MCTrajectoryCollection
       pdgIDs           : [ 2112 ]                  # neutron; a sequence, add more as needed
       keepAllPdgIds    : false
+      keepParticlesWithPositivePz : true
     }
   }
 
@@ -42,4 +43,4 @@ physics : {
   end_paths : [ e1 ]
 }
 
-services.TFileService.fileName : @nil
+services.TFileService.fileName : "/exp/mu2e/data/users/yongyiwu/MDC2025ab/datasets/MDC2025/rootfiles/BeamToEleVD101Neutron.root"
