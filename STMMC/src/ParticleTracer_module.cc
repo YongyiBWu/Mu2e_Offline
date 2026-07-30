@@ -30,6 +30,7 @@
 // Yongyi Wu, Jul. 2026
 
 // stdlib includes
+#include <cmath>
 #include <iostream>
 #include <map>
 #include <set>
@@ -89,11 +90,13 @@ namespace mu2e {
       // art::Ptr, since the StepPointMC/SimParticle collection and the MCTrajectory
       // collection are generally different products (e.g. compressed vs. g4run) whose Ptrs
       // do not compare equal. Genealogy is walked via the SimParticle parent art::Ptrs.
-      // Outcome of an attempt to write one particle's trajectory.
+      // Outcome of an attempt to write one particle's trajectory. Both kWritten and
+      // kNoTrajectory produce a TTree entry; kNoTrajectory means the entry holds only the
+      // SimParticle start/end positions (hasTrajectory = false).
       enum class WriteResult {
-        kWritten,       // trajectory found and a TTree entry was filled
-        kNoTrajectory,  // no MCTrajectory stored for this particle (failed G4 cuts / key mismatch)
-        kDuplicate      // this particle was already written earlier in the event
+        kWritten,       // MCTrajectory found; entry filled with its points
+        kNoTrajectory,  // no MCTrajectory stored (failed G4 cuts / key mismatch); entry = start/end only
+        kDuplicate      // this particle was already written earlier in the event; no entry
       };
       WriteResult writeTrajectory(const art::Ptr<SimParticle>& simPtr,
                                   const TrajIndex& trajIndex,
@@ -112,6 +115,7 @@ namespace mu2e {
       unsigned int run = 0, subRun = 0, event = 0, simId = 0;
       int pdgId = 0, nPoints = 0;
       bool matched = false; // true if this particle is a filtered StepPointMC particle (vs. an ancestor)
+      bool hasTrajectory = false; // true: points from MCTrajectory; false: SimParticle start/end position only
       std::vector<double> x, y, z, t, kE, E;
       // Per-trajectory momentum is not stored in MCTrajectoryPoint (only kE), so we record
       // the SimParticle start/end momentum (MeV/c) as a best-available substitute.
@@ -149,6 +153,7 @@ namespace mu2e {
       ttree->Branch("simId", &simId, "simId/i");
       ttree->Branch("pdgId", &pdgId, "pdgId/I");
       ttree->Branch("matched", &matched, "matched/O"); // true: seed StepPointMC particle; false: ancestor
+      ttree->Branch("hasTrajectory", &hasTrajectory, "hasTrajectory/O"); // false: x/y/z are SimParticle start/end only
       ttree->Branch("nPoints", &nPoints, "nPoints/I");
       ttree->Branch("x", &x);   // mm
       ttree->Branch("y", &y);   // mm
@@ -191,33 +196,49 @@ namespace mu2e {
       return WriteResult::kDuplicate;
     }
 
-    // Look up this particle's trajectory by key; absent if it didn't pass the G4
-    // trajectory cuts (or wasn't produced for this particle).
-    auto traj_it = trajIndex.find(key);
-    if (traj_it == trajIndex.end()) {
-      mf::LogWarning("ParticleTracer")
-        << "No MCTrajectory found for SimParticle (key " << key
-        << ", pdgId " << sim.pdgId() << ")"
-        << (matchedStep ? " (matched StepPointMC particle)" : " (ancestor)")
-        << "; skipping. It likely did not pass the G4 trajectory cuts.";
-      return WriteResult::kNoTrajectory;
-    }
-    const MCTrajectory& traj = *traj_it->second;
-
     pdgId = sim.pdgId();
     matched = matchedStep;
     const double mass = pdt->particle(pdgId).mass();
-
     simId = key.asUint();
-    nPoints = traj.size();
+
+    // Look up this particle's trajectory by key; absent if it didn't pass the G4
+    // trajectory cuts (or wasn't produced for this particle).
+    auto traj_it = trajIndex.find(key);
+    const bool found = (traj_it != trajIndex.end());
+    hasTrajectory = found;
+
     x.clear(); y.clear(); z.clear(); t.clear(); kE.clear(); E.clear();
-    for (auto const& p : traj.points()) {
-      x.push_back(p.x());
-      y.push_back(p.y());
-      z.push_back(p.z());
-      t.push_back(p.t());
-      kE.push_back(p.kineticEnergy());
-      E.push_back(p.kineticEnergy() + mass);
+    if (found) {
+      const MCTrajectory& traj = *traj_it->second;
+      nPoints = traj.size();
+      for (auto const& p : traj.points()) {
+        x.push_back(p.x());
+        y.push_back(p.y());
+        z.push_back(p.z());
+        t.push_back(p.t());
+        kE.push_back(p.kineticEnergy());
+        E.push_back(p.kineticEnergy() + mass);
+      }
+    } else {
+      // No stored trajectory: still emit an entry, using the SimParticle start and end
+      // positions as two points (hasTrajectory = false). Start KE is derived from the
+      // start momentum (there is no startKineticEnergy accessor); end KE is stored.
+      mf::LogWarning("ParticleTracer")
+        << "No MCTrajectory for SimParticle (key " << key
+        << ", pdgId " << sim.pdgId() << ")"
+        << (matchedStep ? " (matched StepPointMC particle)" : " (ancestor)")
+        << "; writing start/end positions only. It likely did not pass the G4 trajectory cuts.";
+      const CLHEP::Hep3Vector startPos = sim.startPosition();
+      const CLHEP::Hep3Vector endPos   = sim.endPosition();
+      const double startKE = std::sqrt(sim.startMomentum().vect().mag2() + mass*mass) - mass;
+      const double endKE   = sim.endKineticEnergy();
+      x = {startPos.x(), endPos.x()};
+      y = {startPos.y(), endPos.y()};
+      z = {startPos.z(), endPos.z()};
+      t = {sim.startGlobalTime(), sim.endGlobalTime()};
+      kE = {startKE, endKE};
+      E  = {startKE + mass, endKE + mass};
+      nPoints = 2;
     }
 
     // SimParticle start/end momentum (MeV/c). HepLorentzVector: vect() = 3-momentum.
@@ -250,7 +271,9 @@ namespace mu2e {
     }
 
     ttree->Fill();
-    return WriteResult::kWritten;
+    // An entry was written either way; distinguish so endJob can report how many matched
+    // hits had a real trajectory vs. only start/end positions.
+    return found ? WriteResult::kWritten : WriteResult::kNoTrajectory;
   };
 
   void ParticleTracer::analyze(const art::Event& evt) {
@@ -322,10 +345,10 @@ namespace mu2e {
     mf::LogInfo log("ParticleTracer summary");
     log << "========= StepPointMC (VD) hits per PDG ID =========\n";
     log << "hits    = matching StepPointMCs (raw VD hit multiplicity)\n";
-    log << "traced  = hits whose particle had a stored MCTrajectory (a TTree entry)\n";
-    log << "Why traced < hits, per PDG:\n";
-    log << "  noTraj = no MCTrajectory stored (failed G4 trajectory cuts or key mismatch)\n";
-    log << "  dup    = same particle already written this event (repeated VD hit)\n";
+    log << "traced  = hits whose particle had a stored MCTrajectory (entry, hasTrajectory=1)\n";
+    log << "noTraj  = no MCTrajectory stored; entry written from start/end positions only\n";
+    log << "          (hasTrajectory=0; failed G4 trajectory cuts or key mismatch)\n";
+    log << "dup     = same particle already written this event (repeated VD hit); no entry\n";
     log << "  (hits should equal traced + noTraj + dup)\n";
     for (auto const& part : vdHitCounts) {
       const int pdg = part.first;
