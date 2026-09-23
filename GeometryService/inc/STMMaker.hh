@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "CLHEP/Vector/ThreeVector.h"
 
@@ -46,6 +47,15 @@ namespace mu2e {
 
     int          _verbosityLevel;
     double       _stmZAllowed;
+
+    // updated, hand-stacked downstream shielding
+    bool         _handstacked;
+
+    // The standard lead bricks, shared by every structure that stacks them
+    CLHEP::Hep3Vector _leadBrick2x4x8Dim;
+    CLHEP::Hep3Vector _leadBrick2x4x16Dim;
+    double      _leadBrickWear;
+    std::string _leadBrickMaterial;
 
     double       _stmReferenceZ;
 
@@ -211,6 +221,12 @@ namespace mu2e {
     double      _STM_SSCAperture_HPGe2;
     double      _STM_SSCAperture_LaBr1;
     double      _STM_SSCAperture_LaBr2;
+    // updated (hand-stacked) SSC: one block per slab, bores stepped in z
+    double      _STM_SSCW_width;
+    double      _STM_SSCr_LaBr_f;
+    double      _STM_SSCr_HPGe_f;
+    double      _STM_SSCr_LaBr_b;
+    double      _STM_SSCr_HPGe_b;
     double      _STM_SSCoffset_Spot;
     double      _STM_SSCleak;
     double      _STM_SSCFrontToWall;
@@ -242,7 +258,35 @@ namespace mu2e {
     double      _SSCSupportFAluminumShim_T;
     double      _SSCSupportFAluminumExtra_L;
     double      _SSCSupportFAluminumExtra_H;
+    // updated (hand-stacked) cradle: five plates around the collimator
+    double      _SSCSupportdepth;
+    double      _SSCSupportside_T;
+    double      _SSCSupportside_H;
+    double      _SSCSupportplate_base_T;
+    double      _SSCSupportbottom_T;
+    double      _SSCSupporttop_T;
+    double      _SSCSupportboreToBase;
+    std::string _SSCSupportMaterial;
 
+    // SSC front shield: the brick wall, the shelf and two poly blocks.
+    // Centres are stored with every offset already applied.
+    bool        _SSCFrontShieldBuild;
+    std::vector<CLHEP::Hep3Vector> _SSCFrontShieldBrick2x4x8Center;
+    std::vector<std::string>       _SSCFrontShieldBrick2x4x8Orientation;
+    std::vector<CLHEP::Hep3Vector> _SSCFrontShieldBrick2x4x16Center;
+    std::vector<std::string>       _SSCFrontShieldBrick2x4x16Orientation;
+    std::string _SSCFrontShieldShelfMaterial;
+    CLHEP::Hep3Vector _SSCFrontShieldShelfDim;
+    CLHEP::Hep3Vector _SSCFrontShieldShelfCenter;
+    std::string _SSCFrontShieldPoly1Material;
+    CLHEP::Hep3Vector _SSCFrontShieldPoly1Dim;
+    CLHEP::Hep3Vector _SSCFrontShieldPoly1Center;
+    double      _SSCFrontShieldPoly1BoreR;
+    double      _SSCFrontShieldPoly1BoreDX;
+    double      _SSCFrontShieldPoly1BoreDY;
+    std::string _SSCFrontShieldPoly2Material;
+    CLHEP::Hep3Vector _SSCFrontShieldPoly2Dim;
+    CLHEP::Hep3Vector _SSCFrontShieldPoly2Center;
 
     bool    _FrontShieldingBuild;
     double  _FrontSHeightofRoom;
