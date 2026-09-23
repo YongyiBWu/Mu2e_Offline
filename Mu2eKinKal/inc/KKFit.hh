@@ -118,7 +118,7 @@ namespace mu2e {
       // sample the fit at the specificed surfaces
       void sampleFit(KKTRK& kktrk) const;
       // save the complete fit trajectory as a seed
-      KalSeed createSeed(KKTRK const& kktrk, TrkFitFlag const& seedflag, Calorimeter const& calo, Tracker const& nominalTracker) const;
+      KalSeed createSeed(KKTRK const& kktrk, TrkFitFlag const& seedflag, Calorimeter const& calo, Tracker const& nominalTracker, TrackerStatus const& trackerStatus) const;
       TimeRange range(KKSTRAWHITCOL const& strawhits, KKCALOHITCOL const& calohits, KKSTRAWXINGCOL const& strawxings) const; // time range from a set of hits and element Xings
       bool useCalo() const { return usecalo_; }
       bool correctMaterial() const { return matcorr_; }
@@ -673,7 +673,7 @@ namespace mu2e {
     return TimeRange(tmin,tmax);
   }
 
-  template <class KTRAJ> KalSeed KKFit<KTRAJ>::createSeed(KKTRK const& kktrk, TrkFitFlag const& seedflag, Calorimeter const& calo, Tracker const& nominalTracker) const {
+  template <class KTRAJ> KalSeed KKFit<KTRAJ>::createSeed(KKTRK const& kktrk, TrkFitFlag const& seedflag, Calorimeter const& calo, Tracker const& nominalTracker, TrackerStatus const& trackerStatus) const {
     TrkFitFlag fflag(seedflag);  // initialize the flag with the seed fit flag
     if(kktrk.fitStatus().usable()){
       fflag.merge(TrkFitFlag::kalmanOK);
@@ -759,6 +759,7 @@ namespace mu2e {
     for(auto const& sxing : kktrk.strawXings()) {
       // create and fill the flag
       StrawFlag flag;
+      if(trackerStatus.noSignal(sxing->strawId()) || trackerStatus.suppress(sxing->strawId()))flag.merge(StrawFlag::dead);
       if(sxing->active())flag.merge(StrawFlag::active);
       if(sxing->strawHitPtr()){
         flag.merge(StrawFlag::hashit);
@@ -787,7 +788,9 @@ namespace mu2e {
           // skip 'zero-range' segments.  By convention, sample the state at the mid-time
           if(traj->range().range() > minrange) kseed._segments.emplace_back(*traj,traj->range().mid());
         }
-        if(savedomains_){
+        // a fit that ran without BField correction has no domains at all; the trailing push_back
+        // below would then dereference rbegin() of an empty set, which is undefined behaviour
+        if(savedomains_ && !kktrk.domains().empty()){
           kseed._domainbounds.reserve(kktrk.domains().size()+1);
           for (auto const& domain : kktrk.domains()){
             kseed._domainbounds.push_back(domain->begin());
