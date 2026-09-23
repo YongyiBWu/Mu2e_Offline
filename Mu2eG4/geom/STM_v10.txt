@@ -1,9 +1,272 @@
 // (Muon) Stoping Target Monitor (STM)
 //
 // Author: Yongyi Wu
+// Notes: All dimensions in mm
+//
+// Hand-stacked downstream shielding.
+//
+// This file does NOT include an earlier STM version: it is a clean
+// slate. Every dimension below is rederived from a CAD export
+// rather than inherited, and parameters are added as each component
+// is placed.
+//
+// Everything downstream is positioned against STMShieldingRef, which
+// is the FRONT FACE OF THE STEEL SUPPORT CRADLE. This point moves if 
+// the thickness of the borated polyethylene against the experiment
+// hall wall or the cable gap size is changed.
 
-#include "Offline/Mu2eG4/geom/STM_v09.txt"
-bool stm.shieldingHolePoly.build = false;
+bool stm.downstream.handstacked = true;
+
+
+// ---- Lead bricks --------------------------------------------------
+//
+// Standard lead bricks, the building block for most of the shield
+// house. Named by size in inches, since other sizes may be added.
+// Both are exact imperial in the CAD.
+//
+// wear shrinks a brick by this much on each face, so it becomes
+// (dx - 2*wear, dy - 2*wear, dz - 2*wear) while staying centred where
+// it was placed: a stack keeps its nominal pitch and the wear opens as
+// gaps between bricks.
+double stm.leadBrick.2x4x8.dx  = 203.200;  //  8 in
+double stm.leadBrick.2x4x8.dy  = 101.600;  //  4 in
+double stm.leadBrick.2x4x8.dz  =  50.800;  //  2 in
+
+double stm.leadBrick.2x4x16.dx = 406.400;  // 16 in
+double stm.leadBrick.2x4x16.dy = 101.600;  //  4 in
+double stm.leadBrick.2x4x16.dz =  50.800;  //  2 in
+
+string stm.leadBrick.material  = "G4_Pb";
+double stm.leadBrick.wear      = 0.0;
+
+
+// ---- Spot-Size Collimator ----------------------------------------
+//
+// The updated SSC is a single tungsten block, 6.4 x 3.2 x 4.0 in.
+// Symmetric design, almost half of the previous SSC size in both width 
+// and height. W_middle, delta_WlL and delta_WlR are therefore gone 
+// rather than retuned.
+
+bool   stm.STM_SSC.build     =  true;
+bool   stm.STM_SSC.VDbuild   =  true; // this builds the VDs around the SSC, 2 in the collimator hole and 5 in teh leak paths
+string stm.STM_SSC.material  = "G4_W";
+double stm.STM_SSC.W_width   = 162.560;  // 6.4 in
+double stm.STM_SSC.W_height  =  81.280;  // 3.2 in
+double stm.STM_SSC.Wdepth_f  =  50.800;  // 2.0 in, upstream slab
+double stm.STM_SSC.Wdepth_b  =  50.800;  // 2.0 in, downstream slab
+double stm.STM_SSC.offset_Spot = 40.640; // = W_width/4, equal distance from the block centre to the bore centers, in x
+// Clearance between the SSC block and the steel supports around it,
+// in x and y. Two independent routes from the CAD agree on 10.0 mm:
+//
+//     W_width + 2*leak + 2*side_thickness = top shield width
+//     162.560 + 2*10.0  + 2*19.050        = 220.660   (updated 220.672)
+//
+// This is NOT the front/back clearance; see ZGapBack = 4.35 mm.
+double stm.STM_SSC.leak      =  10.000;
+
+// Bore radii, as updated imperial sizes. The two bores are stepped 
+// in z: the wide one occupies the upstream slab and the narrow one the 
+// downstream slab, each centred in its own 50.8 mm half at 
+// x = +/-offset_Spot, y = 0.
+double stm.STM_SSC.r_LaBr_f = 12.700;  // 0.500 in, upstream
+double stm.STM_SSC.r_HPGe_f = 12.700;  // 0.500 in, upstream
+double stm.STM_SSC.r_LaBr_b =  6.985;  // 0.275 in, downstream
+double stm.STM_SSC.r_HPGe_b =  6.985;  // 0.275 in, downstream
+
+// The SSC sits inside the steel cradle, which is deeper than it is:
+//
+//     cradle depth (SteelSmallSSC)  110.3 mm
+//     SSC z-extent                  101.6 mm  (Wdepth_f + Wdepth_b)
+//     ZGap = 110.3 - 101.6 =          8.7 mm  total slack
+//
+// ZGapBack is the BACK clearance and ZGap-ZGapBack the front, so the
+// SSC block centre lands at Wdepth_f + ZGap - ZGapBack = 55.15 mm and
+// the block spans z = [4.35, 105.95] inside the cradle's [0, 110.3].
+// As extracted the SSC is centred in the cradle, hence ZGapBack =
+// ZGap/2; it stays independently tunable.
+//
+// Note what the code actually places: the SSC is a union of two slabs
+// and a G4UnionSolid takes its origin from the FIRST constituent, so
+// the placement point is the FRONT slab's centre,
+//     Wdepth_f/2 + ZGap - ZGapBack = 29.75 mm
+// not the block centre above.
+double stm.STM_SSC.ZGap            = 8.70;
+double stm.STM_SSC.ZGapBack        = 4.35;
+
+
+// ---- Steel support cradle ----------------------------------------
+//
+// Five plates: two sides, a base under the SSC, a top over it, and a
+// bottom plate resting on the baseplate. Its front face is
+// STMShieldingRef, the origin every other piece is placed against.
+//
+// Nothing here is positioned independently. The plates build outward
+// from the SSC block, so every width and offset is derived and the
+// relations close against the CAD to within 0.06 mm:
+//
+//     base width  = W_width + 2*leak             = 182.560  (CAD 182.574)
+//     top width   = W_width + 2*leak + 2*side_T  = 220.660  (CAD 220.672)
+//     bottom      = same as top                  = 220.660  (CAD 220.660)
+//
+//     side  dx = +/-(W_width/2  + leak + side_T/2) = +/-100.805
+//     top   dy =   +(W_height/2 + leak + top_T/2)  =  +60.165
+//     base  dy =   -(W_height/2 + leak + base_T/2) =  -60.165
+//
+// so only the thicknesses and the side-plate height are free. All
+// five plates are 110.3 mm deep, and that depth is what sets ZGap
+// against the SSC's 101.6 mm.
+//
+// The side plates hang from the top of the cradle: their top edge is
+// level with the base plate's underside at W_height/2 + leak above the
+// bore, and side_H then carries the stack down to the bottom plate,
+// which rests on the baseplate. That chain is what fixes side_H:
+//
+//     side_H - (W_height/2 + leak) + bottom_T = 236.000
+//     273.940 -        50.640      +  12.700  = 236.000
+//
+// i.e. the bore sits 236 mm above the baseplate. CAD measures the side
+// plate at 273.187, but that leaves a 0.75 mm crack; 273.940 is the
+// height that closes the stack, and is the value the other four paths
+// to the baseplate agree with.
+bool   stm.SSCSupport.build       = true;
+
+// The CAD part labels give these plates as mild steel.
+string stm.SSCSupport.material    = "MildSteel";
+double stm.SSCSupport.depth       = 110.300;  // 4.343 in, sets ZGap
+double stm.SSCSupport.side_T      =  19.050;  // 0.750 in, side plate thickness
+double stm.SSCSupport.side_H      = 273.940;  // closes the stack; CAD 273.187
+double stm.SSCSupport.base_T      =  19.050;  // 0.750 in
+double stm.SSCSupport.bottom_T    =  12.700;  // 0.500 in
+double stm.SSCSupport.top_T       =  19.050;  // 0.750 in
+
+// Height of the SSC bore axis above the baseplate. Five independent
+// stacks through the shielding agree on this to within 0.5 mm; 236.000
+// is the value two all-imperial paths give exactly.
+double stm.SSCSupport.boreToBase  = 236.000;
+
+// ---- SSC front shield ---------------------------------------------
+//
+// The structure in front of the collimator: a wall of lead bricks, the
+// shelf, and two poly blocks.
+//
+// The poly block in front of the STM is bored coaxially with the SSC
+// when stm.SSCFrontShield.offsetX = stm.SSCFrontShield.offsetY = 0.
+//
+bool   stm.SSCFrontShield.build   = true;
+//
+// Centres below are written as if the coaxial alignment were perfect. 
+// The CAD contains an initial displacement of the whole structure from 
+// it, and that displacement is carried once here. In the construction code
+// the offset is applied to every object in the structure.
+double stm.SSCFrontShield.offsetX = 0.000;
+double stm.SSCFrontShield.offsetY = 0.000; //2.287; // for slightly higher front shield as in the CAD
+
+// LaBrSideBrickOffsetX is the offset of the LaBr side bricks from being 
+// flush with the outer radius of the downstream copper pipe's outer 
+// radius, in x. It being 0 means the inner face of the central slit is 
+// flush with the pipe's outer radius. The CAD has the inner face of the
+// LaBr side bricks 1.900 mm further out than the pipe's outer radius.
+// This value will be added to the x-coordinates of all the following 
+// 2x4x16 and 2x4x8 bricks, except for brick2x4x8.center1, center2, 
+// and center4, which are constrained by the position of poly2. 
+double stm.SSCFrontShield.LaBrSideBrickOffsetX = 1.900; 
+
+// Offset of the small poly block in front of the HPGe SSC from being 
+// coaxial with the HPGe side SSC hole, in x. This value will be added 
+// to the x-coordinates of the poly2 block, as well as the x-coordinates 
+// of brick2x4x8.center1, center2, and center4,
+double stm.SSCFrontShield.poly2.offsetX = 0.000; 
+
+// The brick wall: 4 courses in y (+2, +1, -1, -2 -- the 0 course is
+// the beam opening) x 2 courses in z.
+//     x = 40.640 + (5-8) * 25.400 = -35.560  (flush at the stack edge)
+//     y = n * 50.800
+//     z = - 22.333 (distance from the front of the cradle)
+//         - (1.5-k) * 101.600
+// 
+int stm.SSCFrontShield.brick2x4x16.n = 8;
+vector<double> stm.SSCFrontShield.brick2x4x16.center1 = { -35.560,  101.600, -174.733};
+vector<double> stm.SSCFrontShield.brick2x4x16.center2 = { -35.560,  101.600,  -73.133};
+vector<double> stm.SSCFrontShield.brick2x4x16.center3 = { -35.560,   50.800, -174.733};
+vector<double> stm.SSCFrontShield.brick2x4x16.center4 = { -35.560,   50.800,  -73.133};
+vector<double> stm.SSCFrontShield.brick2x4x16.center5 = { -35.560,  -50.800, -174.733};
+vector<double> stm.SSCFrontShield.brick2x4x16.center6 = { -35.560,  -50.800,  -73.133};
+vector<double> stm.SSCFrontShield.brick2x4x16.center7 = { -35.560, -101.600, -174.733};
+vector<double> stm.SSCFrontShield.brick2x4x16.center8 = { -35.560, -101.600,  -73.133};
+
+// All eight lie flat, 16 in along x and 2 in along y.
+string stm.SSCFrontShield.brick2x4x16.orientation = "100";
+
+// The opening course, partly filled either side of the beam aperture,
+// plus two bricks standing on the shelf.
+//   1,2  left of the aperture, one per z course. 
+//        x = - 40.640 - 55.880/2 (poly2 half-width)
+//            - 4*25.400 = -170.18
+//   3    right of it, 8 in deep so it spans both courses and sits at
+//        their midpoint,
+//        x = 40.640 + 3 * 25.400 = 116.840 
+//        z = -22.333 - 101.600 = -123.933
+//   4,5  on the shelf, turned so the 8 in side stands vertically
+//        x4 = - 40.640 - 55.880/2 -2*25.400 = -119.380
+//        z = -22.333 - 2*101.600 - 25.400 = -250.933
+int stm.SSCFrontShield.brick2x4x8.n = 5;
+vector<double> stm.SSCFrontShield.brick2x4x8.center1 = {-170.180,    0.000, -174.733};
+vector<double> stm.SSCFrontShield.brick2x4x8.center2 = {-170.180,    0.000,  -73.133};
+vector<double> stm.SSCFrontShield.brick2x4x8.center3 = { 116.840,    0.000, -123.933};
+vector<double> stm.SSCFrontShield.brick2x4x8.center4 = {-119.380,  -25.400, -250.933};
+vector<double> stm.SSCFrontShield.brick2x4x8.center5 = { 116.840,  -25.400, -250.933};
+
+string stm.SSCFrontShield.brick2x4x8.orientation1 = "100";
+string stm.SSCFrontShield.brick2x4x8.orientation2 = "100";
+string stm.SSCFrontShield.brick2x4x8.orientation3 = "110";
+string stm.SSCFrontShield.brick2x4x8.orientation4 = "001";
+string stm.SSCFrontShield.brick2x4x8.orientation5 = "001";
+
+// ---- SSC front shield: shelf and poly blocks ----------------------
+
+// The shelf carries brick2x4x8.center4 and center5. Its top surface is
+// flush with their underside, so its y follows from them:
+//     y = -25.400 - 203.200/2 - 25.400/2 = -139.700
+// Its x and z are as measured: neither is keyed to the brick lattice,
+// and LaBrSideBrickOffsetX does not apply to it.
+string stm.SSCFrontShield.shelf.material = "G4_Al";
+double stm.SSCFrontShield.shelf.dx = 430.000;
+double stm.SSCFrontShield.shelf.dy =  25.400;  // 1 in
+double stm.SSCFrontShield.shelf.dz = 520.000;
+vector<double> stm.SSCFrontShield.shelf.center = { -37.548, -139.700, -276.333};
+
+// poly1, the large bored block furthest upstream. Its bore is coaxial
+// with the SSC, so with offsetX = offsetY = 0 the bore sits at
+// (offset_Spot, 0) and the block centre follows from the bore:
+//     x = 40.640 - 59.700 = -19.060
+//     y =  0.000 - 16.400 = -16.400
+// Its z is set by the measured gap between its downstream face and the
+// upstream face of bricks 4/5:
+//     z = -276.333 - 22.486 - 238.800/2 = -418.219
+// LaBrSideBrickOffsetX does not apply to it.
+string stm.SSCFrontShield.poly1.material = "Polyethylene096";
+double stm.SSCFrontShield.poly1.dx = 391.200;
+double stm.SSCFrontShield.poly1.dy = 221.200;
+double stm.SSCFrontShield.poly1.dz = 238.800;
+double stm.SSCFrontShield.poly1.gapToBrick = 22.486;
+vector<double> stm.SSCFrontShield.poly1.center = { -19.060, -16.400, -418.219};
+// The bore runs along z through the full depth of the block, offset
+// from the block centre so that it lands on the SSC axis when no
+// additional offsets are applied.
+double stm.SSCFrontShield.poly1.boreR  =  30.000;
+double stm.SSCFrontShield.poly1.boreDX =  59.700;   // bore - block centre
+double stm.SSCFrontShield.poly1.boreDY =  16.400;
+
+// poly2, the small block in the opening course, centred on the HPGe
+// side SSC hole at x = -offset_Spot. Its z is on the brick lattice:
+//     z = -22.333 - 1.75 * 101.600 = -200.133
+// poly2.offsetX is added to the x-coordinate of its center to account
+// for offset from the SSC axis.
+string stm.SSCFrontShield.poly2.material = "Polyethylene096";
+double stm.SSCFrontShield.poly2.dx =  55.880;  // 2.2 in
+double stm.SSCFrontShield.poly2.dy =  50.800;  // 2 in
+double stm.SSCFrontShield.poly2.dz = 152.400;  // 6 in
+vector<double> stm.SSCFrontShield.poly2.center = { -40.640, 0.000, -200.133};
 
 // This tells emacs to view this file in c++ mode
 // Local Variables:

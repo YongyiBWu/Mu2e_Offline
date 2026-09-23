@@ -39,6 +39,9 @@
 #include "Offline/GeometryService/inc/VirtualDetector.hh"
 #include "Offline/DataProducts/inc/VirtualDetectorId.hh"
 #include "Offline/GeomPrimitives/inc/PolyconsParams.hh"
+#include "Offline/GeneralUtilities/inc/OrientationResolver.hh"
+
+#include <sstream>
 
 // G4 includes
 #include "Geant4/G4Material.hh"
@@ -95,7 +98,12 @@ namespace mu2e {
     BackShielding   const & pBackShieldingParams           = *stmgh.getBackShieldingPtr();
 
     ElectronicShielding  const & pElectronicShieldingParams     = *stmgh.getElectronicShieldingPtr();
-    STM_Absorber         const & pSTM_AbsorberParams            = *stmgh.getSTM_AbsorberPtr();
+
+    // The SSC front shield replaces the absorber in the updated geometry,
+    // so exactly one of these two is built and the other is null. They are
+    // taken as pointers rather than references for that reason.
+    STM_Absorber         const * pSTM_AbsorberPtr               = stmgh.getSTM_AbsorberPtr();
+    SSCFrontShield       const * pSSCFrontShieldPtr             = stmgh.getSSCFrontShieldPtr();
 
 
     const auto geomOptions = art::ServiceHandle<GeometryService>()->geomOptions();
@@ -1450,37 +1458,73 @@ namespace mu2e {
 
    const G4ThreeVector  STMShieldingRef =  pSTM_SSCParams.originInMu2e() - parentCenterInMu2e - CLHEP::Hep3Vector(0, 0, Wdepth_f/2 + Back_BPThick + Back_PipeGap);
 
-   const double Aperture_HPGe1 = pSTM_SSCParams.Aperture_HPGe1();
-   const double Aperture_HPGe2 = pSTM_SSCParams.Aperture_HPGe2();
-   const double Aperture_LaBr1 = pSTM_SSCParams.Aperture_LaBr1();
-   const double Aperture_LaBr2 = pSTM_SSCParams.Aperture_LaBr2();
+   // Each slab of the collimator, upstream then downstream, as a solid with
+   // its two bores already subtracted. The two descriptions differ in the
+   // block and in where the bore radii come from, so they are built in the
+   // branches below and joined identically afterwards.
+   G4VSolid* TungstenSSC1 = nullptr;
+   G4VSolid* TungstenSSC2 = nullptr;
 
-   const double r_HPGe1 = sqrt(Aperture_HPGe1/CLHEP::pi);
-   const double r_HPGe2 = sqrt(Aperture_HPGe2/CLHEP::pi);
-   const double r_LaBr1 = sqrt(Aperture_LaBr1/CLHEP::pi);
-   const double r_LaBr2 = sqrt(Aperture_LaBr2/CLHEP::pi);
+   if (stmgh.handstacked()) {
 
+     // The updated collimator: one symmetric block per slab, no wings. The
+     // bores are stepped in z -- both 0.5 in through the upstream slab, both
+     // 0.275 in through the downstream one -- and are given as radii rather
+     // than derived from an aperture area.
+     const double r_LaBr1 = pSTM_SSCParams.r_LaBr_f();
+     const double r_HPGe1 = pSTM_SSCParams.r_HPGe_f();
+     const double r_LaBr2 = pSTM_SSCParams.r_LaBr_b();
+     const double r_HPGe2 = pSTM_SSCParams.r_HPGe_b();
 
-   G4Box* TungstenMiddle1 = new G4Box("TungstenMiddle1", W_middle/2, W_height/2, Wdepth_f/2);
-   G4Box* TungstenLeft1   = new G4Box("TungstenLeft1",  delta_WlL/2, W_height/2, Wdepth_f/2);
-   G4Box* TungstenRight1  = new G4Box("TungstenRight1", delta_WlR/2, W_height/2, Wdepth_f/2);
-   G4Tubs* Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-   G4Tubs* Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-   G4SubtractionSolid* TungstenONEhole1 = new G4SubtractionSolid("TungstenONEhole1", TungstenMiddle1,  Spot_LaBr1, 0, G4ThreeVector(+offset_Spot, 0, 0));
-   G4SubtractionSolid* TungstenTwohole1 = new G4SubtractionSolid("TungstenTWOhole1", TungstenONEhole1, Spot_HPGe1, 0, G4ThreeVector(-offset_Spot, 0, 0));
-   G4UnionSolid* TungstenAdd1 = new G4UnionSolid("TungstenAdd1", TungstenTwohole1, TungstenLeft1, 0, G4ThreeVector(+(W_middle+delta_WlL)/2, 0, 0));
-   G4UnionSolid* TungstenSSC1 = new G4UnionSolid("TungstenSSC1", TungstenAdd1,    TungstenRight1, 0, G4ThreeVector(-(W_middle+delta_WlR)/2, 0, 0));
+     G4Box* TungstenMiddle1 = new G4Box("TungstenMiddle1", W_length/2, W_height/2, Wdepth_f/2);
+     G4Tubs* Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4Tubs* Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4SubtractionSolid* TungstenONEhole1 = new G4SubtractionSolid("TungstenONEhole1", TungstenMiddle1,  Spot_LaBr1, 0, G4ThreeVector(+offset_Spot, 0, 0));
+     TungstenSSC1 = new G4SubtractionSolid("TungstenSSC1", TungstenONEhole1, Spot_HPGe1, 0, G4ThreeVector(-offset_Spot, 0, 0));
 
-   G4Box* TungstenMiddle2 = new G4Box("TungstenMiddle2", W_middle/2, W_height/2, Wdepth_b/2);
-   G4Box* TungstenLeft2   = new G4Box("TungstenLeft2",  delta_WlL/2, W_height/2, Wdepth_b/2);
-   G4Box* TungstenRight2  = new G4Box("TungstenRight2", delta_WlR/2, W_height/2, Wdepth_b/2);
-   G4Tubs* Spot_LaBr2 = new G4Tubs("Spot_LaBr2", 0, r_LaBr2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-   G4Tubs* Spot_HPGe2 = new G4Tubs("Spot_HPGe2", 0, r_HPGe2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-   G4SubtractionSolid* TungstenONEhole2 = new G4SubtractionSolid("TungstenONEhole2", TungstenMiddle2,  Spot_LaBr2, 0, G4ThreeVector(+offset_Spot, 0, 0));
-   G4SubtractionSolid* TungstenTwohole2 = new G4SubtractionSolid("TungstenTWOhole2", TungstenONEhole2, Spot_HPGe2, 0, G4ThreeVector(-offset_Spot, 0, 0));
-   G4UnionSolid* TungstenAdd2 = new G4UnionSolid("TungstenAdd2", TungstenTwohole2, TungstenLeft2, 0, G4ThreeVector(+(W_middle+delta_WlL)/2, 0, 0));
-   G4UnionSolid* TungstenSSC2 = new G4UnionSolid("TungstenSSC2", TungstenAdd2,    TungstenRight2, 0, G4ThreeVector(-(W_middle+delta_WlR)/2, 0, 0));
+     G4Box* TungstenMiddle2 = new G4Box("TungstenMiddle2", W_length/2, W_height/2, Wdepth_b/2);
+     G4Tubs* Spot_LaBr2 = new G4Tubs("Spot_LaBr2", 0, r_LaBr2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4Tubs* Spot_HPGe2 = new G4Tubs("Spot_HPGe2", 0, r_HPGe2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4SubtractionSolid* TungstenONEhole2 = new G4SubtractionSolid("TungstenONEhole2", TungstenMiddle2,  Spot_LaBr2, 0, G4ThreeVector(+offset_Spot, 0, 0));
+     TungstenSSC2 = new G4SubtractionSolid("TungstenSSC2", TungstenONEhole2, Spot_HPGe2, 0, G4ThreeVector(-offset_Spot, 0, 0));
 
+   } else {
+
+     const double Aperture_HPGe1 = pSTM_SSCParams.Aperture_HPGe1();
+     const double Aperture_HPGe2 = pSTM_SSCParams.Aperture_HPGe2();
+     const double Aperture_LaBr1 = pSTM_SSCParams.Aperture_LaBr1();
+     const double Aperture_LaBr2 = pSTM_SSCParams.Aperture_LaBr2();
+
+     const double r_HPGe1 = sqrt(Aperture_HPGe1/CLHEP::pi);
+     const double r_HPGe2 = sqrt(Aperture_HPGe2/CLHEP::pi);
+     const double r_LaBr1 = sqrt(Aperture_LaBr1/CLHEP::pi);
+     const double r_LaBr2 = sqrt(Aperture_LaBr2/CLHEP::pi);
+
+     G4Box* TungstenMiddle1 = new G4Box("TungstenMiddle1", W_middle/2, W_height/2, Wdepth_f/2);
+     G4Box* TungstenLeft1   = new G4Box("TungstenLeft1",  delta_WlL/2, W_height/2, Wdepth_f/2);
+     G4Box* TungstenRight1  = new G4Box("TungstenRight1", delta_WlR/2, W_height/2, Wdepth_f/2);
+     G4Tubs* Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4Tubs* Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4SubtractionSolid* TungstenONEhole1 = new G4SubtractionSolid("TungstenONEhole1", TungstenMiddle1,  Spot_LaBr1, 0, G4ThreeVector(+offset_Spot, 0, 0));
+     G4SubtractionSolid* TungstenTwohole1 = new G4SubtractionSolid("TungstenTWOhole1", TungstenONEhole1, Spot_HPGe1, 0, G4ThreeVector(-offset_Spot, 0, 0));
+     G4UnionSolid* TungstenAdd1 = new G4UnionSolid("TungstenAdd1", TungstenTwohole1, TungstenLeft1, 0, G4ThreeVector(+(W_middle+delta_WlL)/2, 0, 0));
+     TungstenSSC1 = new G4UnionSolid("TungstenSSC1", TungstenAdd1,    TungstenRight1, 0, G4ThreeVector(-(W_middle+delta_WlR)/2, 0, 0));
+
+     G4Box* TungstenMiddle2 = new G4Box("TungstenMiddle2", W_middle/2, W_height/2, Wdepth_b/2);
+     G4Box* TungstenLeft2   = new G4Box("TungstenLeft2",  delta_WlL/2, W_height/2, Wdepth_b/2);
+     G4Box* TungstenRight2  = new G4Box("TungstenRight2", delta_WlR/2, W_height/2, Wdepth_b/2);
+     G4Tubs* Spot_LaBr2 = new G4Tubs("Spot_LaBr2", 0, r_LaBr2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4Tubs* Spot_HPGe2 = new G4Tubs("Spot_HPGe2", 0, r_HPGe2, Wdepth_b/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     G4SubtractionSolid* TungstenONEhole2 = new G4SubtractionSolid("TungstenONEhole2", TungstenMiddle2,  Spot_LaBr2, 0, G4ThreeVector(+offset_Spot, 0, 0));
+     G4SubtractionSolid* TungstenTwohole2 = new G4SubtractionSolid("TungstenTWOhole2", TungstenONEhole2, Spot_HPGe2, 0, G4ThreeVector(-offset_Spot, 0, 0));
+     G4UnionSolid* TungstenAdd2 = new G4UnionSolid("TungstenAdd2", TungstenTwohole2, TungstenLeft2, 0, G4ThreeVector(+(W_middle+delta_WlL)/2, 0, 0));
+     TungstenSSC2 = new G4UnionSolid("TungstenSSC2", TungstenAdd2,    TungstenRight2, 0, G4ThreeVector(-(W_middle+delta_WlR)/2, 0, 0));
+
+   }
+
+   // A G4UnionSolid takes its origin from its FIRST constituent, so the whole
+   // collimator is positioned by the front slab's centre. That is why the
+   // placement below is Wdepth_f/2 (not the block half-depth) past the gap.
    G4UnionSolid* TungstenSSC = new G4UnionSolid("TungstenSSC", TungstenSSC1, TungstenSSC2, 0, G4ThreeVector(0, 0, (Wdepth_f+Wdepth_b)/2));
 
    VolumeInfo TungstenSSCPV;
@@ -1511,7 +1555,12 @@ namespace mu2e {
     ///  Virtual Detectors for the Spot-Size Collimator
     ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-   const double fW_x = (delta_WlL-delta_WlR)/2;
+   // Offset in x from STMShieldingRef to the centre of the collimator block.
+   // In the earlier design the block sat between wings of unequal width, so
+   // that offset was the wing asymmetry. The updated collimator is a single
+   // symmetric block, so its centre is on the reference and the offset is
+   // zero.
+   const double fW_x = stmgh.handstacked() ? 0.0 : (delta_WlL-delta_WlR)/2;
 
    if(pSTM_SSCParams.VDbuild()){
 
@@ -1677,6 +1726,29 @@ namespace mu2e {
     G4Material* SteelMaterial = findMaterialOrThrow("RackSteel");
     G4Material* PolyMaterial = findMaterialOrThrow("Polyethylene");
     G4Material* ConcreteMaterial = findMaterialOrThrow("ShieldingConcrete");
+
+    // Turns the three-digit orientation strings the geometry file uses
+    // into rotations. Shared by every hand-stacked structure.
+    OrientationResolver OR;
+
+    // The standard lead bricks, built once here beside the shared
+    // materials because most of the shield house is stacked from them.
+    // The wear is taken off each face, so a brick is (dx - 2*wear) on a
+    // side and stays centred where it is placed: a stack keeps its
+    // nominal pitch and the wear opens as gaps between bricks.
+    G4Box*      LeadBrick2x4x8S   = nullptr;
+    G4Box*      LeadBrick2x4x16S  = nullptr;
+    G4Material* LeadBrickMaterial = nullptr;
+    if (stmgh.handstacked()) {
+      LeadBrick const & pLeadBrickParams = *stmgh.getLeadBrickPtr();
+      const CLHEP::Hep3Vector b8  = pLeadBrickParams.worn2x4x8();
+      const CLHEP::Hep3Vector b16 = pLeadBrickParams.worn2x4x16();
+      LeadBrick2x4x8S   = new G4Box("LeadBrick2x4x8S",
+                                    b8.x()/2,  b8.y()/2,  b8.z()/2);
+      LeadBrick2x4x16S  = new G4Box("LeadBrick2x4x16S",
+                                    b16.x()/2, b16.y()/2, b16.z()/2);
+      LeadBrickMaterial = findMaterialOrThrow(pLeadBrickParams.material());
+    }
 
     /////////// Front Shielding /////////////////////
 
@@ -1944,7 +2016,174 @@ namespace mu2e {
    }
 
 
-    if(pSSCSupportParams.build())
+    if(pSSCSupportParams.build() && stmgh.handstacked())
+   {
+     // The updated support is a five-plate steel cradle around the
+     // collimator, replacing the earlier table/legs/base/walls and shims.
+     // From the top down:
+     //
+     //     top plate     above the SSC
+     //     SSC block
+     //     base plate    beneath the SSC
+     //     bottom plate  at the very bottom, resting on the baseplate
+     //
+     // with the two side plates spanning the whole height, from the top
+     // plate's underside past the base plate down to the bottom plate.
+     //
+     // Nothing below is positioned independently: the plates build outward
+     // from the SSC block by one clearance, and the side plates carry the
+     // stack down to the baseplate. So the only inputs are the thicknesses
+     // and the side-plate height.
+     G4Material* CradleMaterial = findMaterialOrThrow(pSSCSupportParams.material());
+
+     const double Cradle_depth   = pSSCSupportParams.depth();
+     const double Cradle_side_T  = pSSCSupportParams.side_T();
+     const double Cradle_side_H  = pSSCSupportParams.side_H();
+     const double Cradle_base_T  = pSSCSupportParams.plate_base_T();
+     const double Cradle_bot_T   = pSSCSupportParams.bottom_T();
+     const double Cradle_top_T   = pSSCSupportParams.top_T();
+
+     // Widths, built outward from the block. The base plate spans the block
+     // and its clearance; the top and bottom plates also span the sides.
+     const double Cradle_base_W  = W_length + 2*leak;
+     const double Cradle_outer_W = W_length + 2*leak + 2*Cradle_side_T;
+
+     // The cradle front surface is at the same level as STMShieldingRef
+     const double Cradle_dZ      = Cradle_depth/2;
+
+     // One clearance below and above the block.
+     const double Cradle_base_dY = -(W_height/2 + leak + Cradle_base_T/2);
+     const double Cradle_top_dY  = +(W_height/2 + leak + Cradle_top_T/2);
+
+     // The side plates hang from the top plate's underside, and side_H
+     // carries them down to the bottom plate, which rests on the baseplate.
+     // That chain is what puts the bore boreToBase above the baseplate:
+     //     side_H - (W_height/2 + leak) + bottom_T
+     const double Cradle_side_top = W_height/2 + leak;
+     const double Cradle_side_dY  = Cradle_side_top - Cradle_side_H/2;
+     const double Cradle_side_dX  = W_length/2 + leak + Cradle_side_T/2;
+
+     const double Cradle_bot_dY   = Cradle_side_top - Cradle_side_H - Cradle_bot_T/2;
+
+     if (verbosityLevel > 0) {
+       const double chain = Cradle_side_H - Cradle_side_top + Cradle_bot_T;
+       cout << __func__ << " STM SSC cradle: bore sits " << chain
+            << " mm above the baseplate (config boreToBase = "
+            << pSSCSupportParams.boreToBase() << ")" << endl;
+     }
+
+    ////////////////////////////////////////
+    // Side plates, spanning top plate to bottom plate
+
+     G4Box* SteelSSCSideS = new G4Box("SteelSSCSideS", Cradle_side_T/2, Cradle_side_H/2, Cradle_depth/2);
+
+     VolumeInfo SteelSSCSidePV1;
+     SteelSSCSidePV1.name = "SteelSSCSidePV1";
+     SteelSSCSidePV1.solid = SteelSSCSideS;
+     G4ThreeVector stmSteelSSCSide1InParent = STMShieldingRef + G4ThreeVector(fW_x + Cradle_side_dX, Cradle_side_dY, Cradle_dZ);
+
+     finishNesting(SteelSSCSidePV1,
+     CradleMaterial,
+     0,
+     stmSteelSSCSide1InParent,
+     parentInfo.logical,
+     0,
+     STMisVisible,
+     G4Colour::Blue(),
+     STMisSolid,
+     forceAuxEdgeVisible,
+     placePV,
+     doSurfaceCheck);
+
+     VolumeInfo SteelSSCSidePV2;
+     SteelSSCSidePV2.name = "SteelSSCSidePV2";
+     SteelSSCSidePV2.solid = SteelSSCSideS;
+     G4ThreeVector stmSteelSSCSide2InParent = STMShieldingRef + G4ThreeVector(fW_x - Cradle_side_dX, Cradle_side_dY, Cradle_dZ);
+
+     finishNesting(SteelSSCSidePV2,
+     CradleMaterial,
+     0,
+     stmSteelSSCSide2InParent,
+     parentInfo.logical,
+     0,
+     STMisVisible,
+     G4Colour::Blue(),
+     STMisSolid,
+     forceAuxEdgeVisible,
+     placePV,
+     doSurfaceCheck);
+
+    ////////////////////////////////////////
+    // Base plate, beneath the SSC
+
+     G4Box* SteelSSCBaseS = new G4Box("SteelSSCBaseS", Cradle_base_W/2, Cradle_base_T/2, Cradle_depth/2);
+
+     VolumeInfo SteelSSCBasePV;
+     SteelSSCBasePV.name = "SteelSSCBasePV";
+     SteelSSCBasePV.solid = SteelSSCBaseS;
+     G4ThreeVector stmSteelSSCBaseInParent = STMShieldingRef + G4ThreeVector(fW_x, Cradle_base_dY, Cradle_dZ);
+
+     finishNesting(SteelSSCBasePV,
+     CradleMaterial,
+     0,
+     stmSteelSSCBaseInParent,
+     parentInfo.logical,
+     0,
+     STMisVisible,
+     G4Colour::Blue(),
+     STMisSolid,
+     forceAuxEdgeVisible,
+     placePV,
+     doSurfaceCheck);
+
+    ////////////////////////////////////////
+    // Top plate, above the SSC
+
+     G4Box* SteelSSCTopS = new G4Box("SteelSSCTopS", Cradle_outer_W/2, Cradle_top_T/2, Cradle_depth/2);
+
+     VolumeInfo SteelSSCTopPV;
+     SteelSSCTopPV.name = "SteelSSCTopPV";
+     SteelSSCTopPV.solid = SteelSSCTopS;
+     G4ThreeVector stmSteelSSCTopInParent = STMShieldingRef + G4ThreeVector(fW_x, Cradle_top_dY, Cradle_dZ);
+
+     finishNesting(SteelSSCTopPV,
+     CradleMaterial,
+     0,
+     stmSteelSSCTopInParent,
+     parentInfo.logical,
+     0,
+     STMisVisible,
+     G4Colour::Blue(),
+     STMisSolid,
+     forceAuxEdgeVisible,
+     placePV,
+     doSurfaceCheck);
+
+    ////////////////////////////////////////
+    // Bottom plate, at the very bottom, resting on the baseplate
+
+     G4Box* SteelSSCBottomS = new G4Box("SteelSSCBottomS", Cradle_outer_W/2, Cradle_bot_T/2, Cradle_depth/2);
+
+     VolumeInfo SteelSSCBottomPV;
+     SteelSSCBottomPV.name = "SteelSSCBottomPV";
+     SteelSSCBottomPV.solid = SteelSSCBottomS;
+     G4ThreeVector stmSteelSSCBottomInParent = STMShieldingRef + G4ThreeVector(fW_x, Cradle_bot_dY, Cradle_dZ);
+
+     finishNesting(SteelSSCBottomPV,
+     CradleMaterial,
+     0,
+     stmSteelSSCBottomInParent,
+     parentInfo.logical,
+     0,
+     STMisVisible,
+     G4Colour::Blue(),
+     STMisSolid,
+     forceAuxEdgeVisible,
+     placePV,
+     doSurfaceCheck);
+
+   }
+   else if(pSSCSupportParams.build())
    {
 
      const double Support_table_L = pSSCSupportParams.table_L();
@@ -3723,9 +3962,170 @@ namespace mu2e {
    }
 
 
-    /////////// STM Absorber //////////////////////
-    if(pSTM_AbsorberParams.build())
+    /////////// SSC Front Shield //////////////////
+    //
+    // The updated geometry puts a stacked lead brick wall, an aluminium
+    // shelf carrying two more bricks, and two polyethylene blocks where
+    // the earlier description had a single absorber block.
+    //
+    // Every centre arrives from STMMaker with the structure's offsets
+    // already applied, so the placements below are the positions as-is.
+    // The brick solids and the orientation resolver are the shared ones
+    // built at the top of this section.
+    if(stmgh.handstacked() && pSSCFrontShieldPtr && pSSCFrontShieldPtr->build())
    {
+      SSCFrontShield const & pSSCFrontShieldParams = *pSSCFrontShieldPtr;
+
+      G4Material* SSCFrontShieldShelfMaterial = findMaterialOrThrow(pSSCFrontShieldParams.shelfMaterial());
+      G4Material* SSCFrontShieldPoly1Material = findMaterialOrThrow(pSSCFrontShieldParams.poly1Material());
+      G4Material* SSCFrontShieldPoly2Material = findMaterialOrThrow(pSSCFrontShieldParams.poly2Material());
+
+      // One helper for both brick sizes: all that varies per brick is
+      // the solid, where it goes and how it is turned. The 2x4x16s are
+      // numbered first, then the 2x4x8s continue the same series.
+      int brickIndex = 0;
+      auto placeBricks =
+        [&](G4Box* solid,
+            std::vector<CLHEP::Hep3Vector> const & centers,
+            std::vector<std::string> const & orientations) {
+          for (size_t i = 0; i < centers.size(); ++i) {
+            std::ostringstream name;
+            name << "LeadSSCFrontShieldBrick" << ++brickIndex << "PV";
+
+            CLHEP::HepRotation* rot =
+              reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+            OR.getRotationFromOrientation(*rot, orientations.at(i));
+
+            VolumeInfo LeadSSCFrontShieldBrick;
+            LeadSSCFrontShieldBrick.name  = name.str();
+            LeadSSCFrontShieldBrick.solid = solid;
+
+            finishNesting(LeadSSCFrontShieldBrick,
+            LeadBrickMaterial,
+            rot,
+            STMShieldingRef + centers.at(i),
+            parentInfo.logical,
+            0,
+            STMisVisible,
+            G4Colour::Gray(),
+            STMisSolid,
+            forceAuxEdgeVisible,
+            placePV,
+            doSurfaceCheck);
+          }
+        };
+
+      placeBricks(LeadBrick2x4x16S,
+                  pSSCFrontShieldParams.brick2x4x16Center(),
+                  pSSCFrontShieldParams.brick2x4x16Orientation());
+      placeBricks(LeadBrick2x4x8S,
+                  pSSCFrontShieldParams.brick2x4x8Center(),
+                  pSSCFrontShieldParams.brick2x4x8Orientation());
+
+      ////////////////////////////////////////
+      // The shelf, carrying the two upright bricks
+
+      const CLHEP::Hep3Vector shelfDim = pSSCFrontShieldParams.shelfDim();
+      G4Box* AluminumSSCFrontShieldShelf = new G4Box("AluminumSSCFrontShieldShelf",
+                                                     shelfDim.x()/2, shelfDim.y()/2, shelfDim.z()/2);
+
+      VolumeInfo AluminumSSCFrontShieldShelfPV;
+      AluminumSSCFrontShieldShelfPV.name  = "AluminumSSCFrontShieldShelfPV";
+      AluminumSSCFrontShieldShelfPV.solid = AluminumSSCFrontShieldShelf;
+
+      finishNesting(AluminumSSCFrontShieldShelfPV,
+      SSCFrontShieldShelfMaterial,
+      0,
+      STMShieldingRef + pSSCFrontShieldParams.shelfCenter(),
+      parentInfo.logical,
+      0,
+      STMisVisible,
+      G4Colour::Green(),
+      STMisSolid,
+      forceAuxEdgeVisible,
+      placePV,
+      doSurfaceCheck);
+
+      ////////////////////////////////////////
+      // Absorber 1, bored along z so the hole lands on the SSC axis
+
+      const CLHEP::Hep3Vector poly1Dim = pSSCFrontShieldParams.poly1Dim();
+      G4Box* PolySSCFrontShieldAbsorber1Box =
+        new G4Box("PolySSCFrontShieldAbsorber1Box",
+                  poly1Dim.x()/2, poly1Dim.y()/2, poly1Dim.z()/2);
+
+      // Longer than the block so the subtraction punches clean through.
+      G4Tubs* PolySSCFrontShieldAbsorber1Bore =
+        new G4Tubs("PolySSCFrontShieldAbsorber1Bore",
+                   0., pSSCFrontShieldParams.poly1BoreR(),
+                   poly1Dim.z()/2 + 10.0,
+                   0., CLHEP::twopi);
+
+      G4SubtractionSolid* PolySSCFrontShieldAbsorber1 =
+        new G4SubtractionSolid("PolySSCFrontShieldAbsorber1",
+                               PolySSCFrontShieldAbsorber1Box,
+                               PolySSCFrontShieldAbsorber1Bore,
+                               0,
+                               G4ThreeVector(pSSCFrontShieldParams.poly1BoreDX(),
+                                             pSSCFrontShieldParams.poly1BoreDY(),
+                                             0.));
+
+      VolumeInfo PolySSCFrontShieldAbsorber1PV;
+      PolySSCFrontShieldAbsorber1PV.name  = "PolySSCFrontShieldAbsorber1PV";
+      PolySSCFrontShieldAbsorber1PV.solid = PolySSCFrontShieldAbsorber1;
+
+      finishNesting(PolySSCFrontShieldAbsorber1PV,
+      SSCFrontShieldPoly1Material,
+      0,
+      STMShieldingRef + pSSCFrontShieldParams.poly1Center(),
+      parentInfo.logical,
+      0,
+      STMisVisible,
+      G4Colour::Cyan(),
+      STMisSolid,
+      forceAuxEdgeVisible,
+      placePV,
+      doSurfaceCheck);
+
+      ////////////////////////////////////////
+      // Absorber 2, in the beam opening
+
+      const CLHEP::Hep3Vector poly2Dim = pSSCFrontShieldParams.poly2Dim();
+      G4Box* PolySSCFrontShieldAbsorber2 =
+        new G4Box("PolySSCFrontShieldAbsorber2",
+                  poly2Dim.x()/2, poly2Dim.y()/2, poly2Dim.z()/2);
+
+      VolumeInfo PolySSCFrontShieldAbsorber2PV;
+      PolySSCFrontShieldAbsorber2PV.name  = "PolySSCFrontShieldAbsorber2PV";
+      PolySSCFrontShieldAbsorber2PV.solid = PolySSCFrontShieldAbsorber2;
+
+      finishNesting(PolySSCFrontShieldAbsorber2PV,
+      SSCFrontShieldPoly2Material,
+      0,
+      STMShieldingRef + pSSCFrontShieldParams.poly2Center(),
+      parentInfo.logical,
+      0,
+      STMisVisible,
+      G4Colour::Cyan(),
+      STMisSolid,
+      forceAuxEdgeVisible,
+      placePV,
+      doSurfaceCheck);
+
+      if ( verbosityLevel > 0) {
+        cout << __func__ << " SSCFrontShield : "
+             << pSSCFrontShieldParams.brick2x4x16Center().size() << " 2x4x16 bricks, "
+             << pSSCFrontShieldParams.brick2x4x8Center().size()  << " 2x4x8 bricks" << endl;
+      }
+
+   }
+
+
+    /////////// STM Absorber //////////////////////
+    else if(pSTM_AbsorberPtr && pSTM_AbsorberPtr->build())
+   {
+      STM_Absorber const & pSTM_AbsorberParams = *pSTM_AbsorberPtr;
+
       const double Absorber_hW = pSTM_AbsorberParams.Absorber_hW();
       const double Absorber_hH = pSTM_AbsorberParams.Absorber_hH();
       const double Absorber_hT = pSTM_AbsorberParams.Absorber_hT();

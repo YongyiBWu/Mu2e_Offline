@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <cmath>
 #include <vector>
+#include <sstream>
 
 // clhep includes
 #include "CLHEP/Vector/ThreeVector.h"
@@ -49,6 +50,19 @@ namespace mu2e {
     STM & stm = *_stm.get();
 
     parseConfig(_config);
+
+    // One switch for the whole downstream geometry rather than a flag per
+    // component; see STM::handstacked().
+    stm._handstacked = _handstacked;
+
+    // The shared standard lead bricks. 
+    if (_handstacked) {
+      stm._pLeadBrickParams = std::unique_ptr<LeadBrick>
+              (new LeadBrick(_leadBrick2x4x8Dim,
+                             _leadBrick2x4x16Dim,
+                             _leadBrickWear,
+                             _leadBrickMaterial));
+    }
 
     // now create the specific components
 
@@ -357,6 +371,28 @@ namespace mu2e {
     const CLHEP::HepRotation _STM_SSCRotation     = CLHEP::HepRotation::IDENTITY;
     const CLHEP::Hep3Vector  _STM_SSCOffsetInMu2e = _STMShieldingRef + CLHEP::Hep3Vector(0, 0, _STM_SSCWdepth_f/2);
 
+    if (_handstacked) {
+      // The updated SSC: a single symmetric block, bores stepped in z.
+          stm._pSTM_SSCParams = std::unique_ptr<STM_SSC>
+                  (new STM_SSC(_STM_SSCBuild,
+                               _STM_SSCVDBuild,
+                               _STM_SSCW_width,
+                               _STM_SSCW_height,
+                               _STM_SSCWdepth_f,
+                               _STM_SSCWdepth_b,
+                               _STM_SSCr_LaBr_f,
+                               _STM_SSCr_HPGe_f,
+                               _STM_SSCr_LaBr_b,
+                               _STM_SSCr_HPGe_b,
+                               _STM_SSCoffset_Spot,
+                               _STM_SSCleak,
+                               _STM_SSCFrontToWall,
+                               _STM_SSCZGap,
+                               _STM_SSCZGapBack,
+                               _STM_SSCOffsetInMu2e,
+                               _STM_SSCRotation,
+                               _STM_SSCMaterial));
+    } else {
           stm._pSTM_SSCParams = std::unique_ptr<STM_SSC>
                   (new STM_SSC(_STM_SSCBuild,
                                _STM_SSCVDBuild,
@@ -378,6 +414,7 @@ namespace mu2e {
                                _STM_SSCOffsetInMu2e,
                                _STM_SSCRotation,
                                _STM_SSCMaterial));
+    }
 
    ////////////////////////////////////////////////////////////////
    //Spot-Size Collimator Support
@@ -385,6 +422,21 @@ namespace mu2e {
     const CLHEP::HepRotation _SSCSupportRotation     = CLHEP::HepRotation::IDENTITY;
     const CLHEP::Hep3Vector  _SSCSupportOffsetInMu2e = _STMShieldingRef + CLHEP::Hep3Vector(0, 0, _STM_SSCZGap/2);
 
+    if (_handstacked) {
+      // The updated support: a five-plate steel cradle around the collimator.
+          stm._pSSCSupportParams = std::unique_ptr<SSCSupport>
+                  (new SSCSupport(_SSCSupportBuild,
+                               _SSCSupportdepth,
+                               _SSCSupportside_T,
+                               _SSCSupportside_H,
+                               _SSCSupportplate_base_T,
+                               _SSCSupportbottom_T,
+                               _SSCSupporttop_T,
+                               _SSCSupportboreToBase,
+                               _SSCSupportMaterial,
+                               _SSCSupportOffsetInMu2e,
+                               _SSCSupportRotation));
+    } else {
           stm._pSSCSupportParams = std::unique_ptr<SSCSupport>
                   (new SSCSupport(_SSCSupportBuild,
                                _SSCSupporttable_L,
@@ -411,6 +463,7 @@ namespace mu2e {
                                _SSCSupportFAluminumExtra_H,
                                _SSCSupportOffsetInMu2e,
                                _SSCSupportRotation));
+    }
 
    ////////////////////////////////////////////////////////////////
    //STM Front Shielding
@@ -650,13 +703,38 @@ namespace mu2e {
                                    _ElectronicSGapToSi));
 
    ////////////////////////////////////////////////////////////////
-   //STM Absorber Shielding
+   //STM Absorber Shielding, or the SSC front shield that replaces it
+
+    if (_handstacked) {
+      // The updated geometry puts a stacked lead brick wall, a shelf and
+      // two poly blocks where the earlier description had a single
+      // absorber block.
+      stm._pSSCFrontShieldParams = std::unique_ptr<SSCFrontShield>
+              (new SSCFrontShield(_SSCFrontShieldBuild,
+                                  _SSCFrontShieldBrick2x4x8Center,
+                                  _SSCFrontShieldBrick2x4x8Orientation,
+                                  _SSCFrontShieldBrick2x4x16Center,
+                                  _SSCFrontShieldBrick2x4x16Orientation,
+                                  _SSCFrontShieldShelfMaterial,
+                                  _SSCFrontShieldShelfDim,
+                                  _SSCFrontShieldShelfCenter,
+                                  _SSCFrontShieldPoly1Material,
+                                  _SSCFrontShieldPoly1Dim,
+                                  _SSCFrontShieldPoly1Center,
+                                  _SSCFrontShieldPoly1BoreR,
+                                  _SSCFrontShieldPoly1BoreDX,
+                                  _SSCFrontShieldPoly1BoreDY,
+                                  _SSCFrontShieldPoly2Material,
+                                  _SSCFrontShieldPoly2Dim,
+                                  _SSCFrontShieldPoly2Center));
+    } else {
           stm._pSTMSTM_AbsorberParams = std::unique_ptr<STM_Absorber>
           (new STM_Absorber(_STM_AbsorberBuild,
                             _STM_Absorber_hW,
                             _STM_Absorber_hH,
                             _STM_Absorber_hT,
                             _STM_Absorber_GaptoSSC));
+    }
 
   }
 
@@ -668,6 +746,26 @@ namespace mu2e {
 
     _verbosityLevel            = _config.getInt("stm.verbosityLevel",0);
     _stmZAllowed               = _config.getDouble("stm.z.allowed");
+
+    // The updated, hand-stacked downstream shielding, taken from the NX STEP
+    // export of the shield house. One switch for the whole downstream
+    // geometry: those pieces are dimensioned against a shared datum and a
+    // shared stack chain, so they ship together rather than one at a time.
+    _handstacked               = _config.getBool("stm.downstream.handstacked",false);
+
+    // The standard lead bricks. Read here rather than with any one
+    // structure: most of the shield house is stacked from them, so they
+    // are a shared primitive that many components refer to.
+    if (_handstacked) {
+      _leadBrick2x4x8Dim  = CLHEP::Hep3Vector(_config.getDouble("stm.leadBrick.2x4x8.dx"),
+                                              _config.getDouble("stm.leadBrick.2x4x8.dy"),
+                                              _config.getDouble("stm.leadBrick.2x4x8.dz"));
+      _leadBrick2x4x16Dim = CLHEP::Hep3Vector(_config.getDouble("stm.leadBrick.2x4x16.dx"),
+                                              _config.getDouble("stm.leadBrick.2x4x16.dy"),
+                                              _config.getDouble("stm.leadBrick.2x4x16.dz"));
+      _leadBrickWear      = _config.getDouble("stm.leadBrick.wear");
+      _leadBrickMaterial  = _config.getString("stm.leadBrick.material");
+    }
 
     _stmReferenceZ             = _config.getDouble("stm.referenceZ");  //was previously calculated automatically based on the location of the CRV-D
 
@@ -823,16 +921,29 @@ namespace mu2e {
 
     _STM_SSCBuild          = _config.getBool(  "stm.STM_SSC.build");
     _STM_SSCVDBuild        = _config.getBool(  "stm.STM_SSC.VDbuild");
-    _STM_SSCdelta_WlR      = _config.getDouble("stm.STM_SSC.delta_WlR");
-    _STM_SSCdelta_WlL      = _config.getDouble("stm.STM_SSC.delta_WlL");
-    _STM_SSCW_middle       = _config.getDouble("stm.STM_SSC.W_middle");
     _STM_SSCW_height       = _config.getDouble("stm.STM_SSC.W_height");
     _STM_SSCWdepth_f       = _config.getDouble("stm.STM_SSC.Wdepth_f");
     _STM_SSCWdepth_b       = _config.getDouble("stm.STM_SSC.Wdepth_b");
-    _STM_SSCAperture_HPGe1 = _config.getDouble("stm.STM_SSC.Aperture_HPGe1");
-    _STM_SSCAperture_HPGe2 = _config.getDouble("stm.STM_SSC.Aperture_HPGe2");
-    _STM_SSCAperture_LaBr1 = _config.getDouble("stm.STM_SSC.Aperture_LaBr1");
-    _STM_SSCAperture_LaBr2 = _config.getDouble("stm.STM_SSC.Aperture_LaBr2");
+
+    // Each description reads only the keys it has: the earlier SSC is a
+    // middle block plus two wings with the bores given as aperture areas,
+    // the updated one a single block with the bores given as radii. Reading
+    // them apart means a geometry file need not carry the other's parameters.
+    if (_handstacked) {
+      _STM_SSCW_width      = _config.getDouble("stm.STM_SSC.W_width");
+      _STM_SSCr_LaBr_f     = _config.getDouble("stm.STM_SSC.r_LaBr_f");
+      _STM_SSCr_HPGe_f     = _config.getDouble("stm.STM_SSC.r_HPGe_f");
+      _STM_SSCr_LaBr_b     = _config.getDouble("stm.STM_SSC.r_LaBr_b");
+      _STM_SSCr_HPGe_b     = _config.getDouble("stm.STM_SSC.r_HPGe_b");
+    } else {
+      _STM_SSCdelta_WlR      = _config.getDouble("stm.STM_SSC.delta_WlR");
+      _STM_SSCdelta_WlL      = _config.getDouble("stm.STM_SSC.delta_WlL");
+      _STM_SSCW_middle       = _config.getDouble("stm.STM_SSC.W_middle");
+      _STM_SSCAperture_HPGe1 = _config.getDouble("stm.STM_SSC.Aperture_HPGe1");
+      _STM_SSCAperture_HPGe2 = _config.getDouble("stm.STM_SSC.Aperture_HPGe2");
+      _STM_SSCAperture_LaBr1 = _config.getDouble("stm.STM_SSC.Aperture_LaBr1");
+      _STM_SSCAperture_LaBr2 = _config.getDouble("stm.STM_SSC.Aperture_LaBr2");
+    }
     _STM_SSCoffset_Spot    = _config.getDouble("stm.STM_SSC.offset_Spot");
     _STM_SSCleak           = _config.getDouble("stm.STM_SSC.leak");
     _STM_SSCFrontToWall    = _config.getDouble("stm.STM_SSC.FrontToWall");
@@ -841,6 +952,19 @@ namespace mu2e {
     _STM_SSCMaterial       = _config.getString("stm.STM_SSC.material");
 
     _SSCSupportBuild          = _config.getBool(  "stm.SSCSupport.build");
+
+    // The updated support is a five-plate steel cradle, not the earlier
+    // table/legs/base/walls plus shims, so the two read different keys.
+    if (_handstacked) {
+      _SSCSupportdepth        = _config.getDouble("stm.SSCSupport.depth");
+      _SSCSupportside_T       = _config.getDouble("stm.SSCSupport.side_T");
+      _SSCSupportside_H       = _config.getDouble("stm.SSCSupport.side_H");
+      _SSCSupportplate_base_T = _config.getDouble("stm.SSCSupport.base_T");
+      _SSCSupportbottom_T     = _config.getDouble("stm.SSCSupport.bottom_T");
+      _SSCSupporttop_T        = _config.getDouble("stm.SSCSupport.top_T");
+      _SSCSupportboreToBase   = _config.getDouble("stm.SSCSupport.boreToBase");
+      _SSCSupportMaterial     = _config.getString("stm.SSCSupport.material");
+    } else {
     _SSCSupporttable_L      = _config.getDouble("stm.SSCSupport.table_L");
     _SSCSupporttable_H      = _config.getDouble("stm.SSCSupport.table_H");
     _SSCSupporttable_T      = _config.getDouble("stm.SSCSupport.table_T");
@@ -863,6 +987,114 @@ namespace mu2e {
     _SSCSupportFAluminumShim_T   = _config.getDouble("stm.SSCSupport.FAluminumShim_T");
     _SSCSupportFAluminumExtra_L  = _config.getDouble("stm.SSCSupport.FAluminumExtra_L");
     _SSCSupportFAluminumExtra_H  = _config.getDouble("stm.SSCSupport.FAluminumExtra_H");
+    }
+
+    // ---- SSC front shield ---------------------------------------------
+    //
+    // The geometry file writes every centre as if the structure sat
+    // exactly on the SSC axis. Three offsets displace it, and they are
+    // resolved here so that nothing downstream has to know which one
+    // applies to which piece:
+    //
+    //   offsetX/offsetY        the whole structure
+    //   LaBrSideBrickOffsetX   the bricks, except 2x4x8 centres 1, 2 and
+    //                          4, which are constrained by poly2 instead
+    //   poly2.offsetX          poly2, and those same three bricks
+    if (_handstacked) {
+
+      _SSCFrontShieldBuild = _config.getBool("stm.SSCFrontShield.build");
+
+      const double fsOffX      = _config.getDouble("stm.SSCFrontShield.offsetX");
+      const double fsOffY      = _config.getDouble("stm.SSCFrontShield.offsetY");
+      const double fsLaBrOffX  = _config.getDouble("stm.SSCFrontShield.LaBrSideBrickOffsetX");
+      const double fsPoly2OffX = _config.getDouble("stm.SSCFrontShield.poly2.offsetX");
+
+      const CLHEP::Hep3Vector fsShift(fsOffX, fsOffY, 0.);
+
+      // Read a numbered list of centres, shifting each by the structure
+      // offset plus whichever x offset that piece follows.
+      auto readCenters = [&](std::string const & base, int n,
+                             std::vector<double> const & extraX) {
+        std::vector<CLHEP::Hep3Vector> out;
+        out.reserve(n);
+        for (int i = 1; i <= n; ++i) {
+          std::ostringstream key;
+          key << base << ".center" << i;
+          std::vector<double> c;
+          _config.getVectorDouble(key.str(), c, 3);
+          out.push_back(CLHEP::Hep3Vector(c[0] + extraX.at(i-1), c[1], c[2]) + fsShift);
+        }
+        return out;
+      };
+      // A structure may give one orientation for all of its bricks, as
+      // the 2x4x16 wall does, or one per brick.
+      auto readOrientations = [&](std::string const & base, int n) {
+        std::vector<std::string> out;
+        out.reserve(n);
+        const std::string shared = _config.getString(base + ".orientation", "");
+        for (int i = 1; i <= n; ++i) {
+          if (!shared.empty()) { out.push_back(shared); continue; }
+          std::ostringstream key;
+          key << base << ".orientation" << i;
+          out.push_back(_config.getString(key.str(), "000"));
+        }
+        return out;
+      };
+
+      const int n16 = _config.getInt("stm.SSCFrontShield.brick2x4x16.n");
+      _SSCFrontShieldBrick2x4x16Center =
+        readCenters("stm.SSCFrontShield.brick2x4x16", n16,
+                    std::vector<double>(n16, fsLaBrOffX));
+      _SSCFrontShieldBrick2x4x16Orientation =
+        readOrientations("stm.SSCFrontShield.brick2x4x16", n16);
+
+      // Bricks 1, 2 and 4 sit against poly2 rather than the LaBr side
+      // stack, so they follow poly2's offset instead.
+      const int n8 = _config.getInt("stm.SSCFrontShield.brick2x4x8.n");
+      std::vector<double> extraX8(n8, fsLaBrOffX);
+      for (int i : {1, 2, 4}) {
+        if (i <= n8) extraX8[i-1] = fsPoly2OffX;
+      }
+      _SSCFrontShieldBrick2x4x8Center =
+        readCenters("stm.SSCFrontShield.brick2x4x8", n8, extraX8);
+      _SSCFrontShieldBrick2x4x8Orientation =
+        readOrientations("stm.SSCFrontShield.brick2x4x8", n8);
+
+      // The shelf and poly1 take only the whole-structure offset.
+      _SSCFrontShieldShelfMaterial = _config.getString("stm.SSCFrontShield.shelf.material");
+      _SSCFrontShieldShelfDim = CLHEP::Hep3Vector(_config.getDouble("stm.SSCFrontShield.shelf.dx"),
+                                                  _config.getDouble("stm.SSCFrontShield.shelf.dy"),
+                                                  _config.getDouble("stm.SSCFrontShield.shelf.dz"));
+      {
+        std::vector<double> c;
+        _config.getVectorDouble("stm.SSCFrontShield.shelf.center", c, 3);
+        _SSCFrontShieldShelfCenter = CLHEP::Hep3Vector(c[0], c[1], c[2]) + fsShift;
+      }
+
+      _SSCFrontShieldPoly1Material = _config.getString("stm.SSCFrontShield.poly1.material");
+      _SSCFrontShieldPoly1Dim = CLHEP::Hep3Vector(_config.getDouble("stm.SSCFrontShield.poly1.dx"),
+                                                  _config.getDouble("stm.SSCFrontShield.poly1.dy"),
+                                                  _config.getDouble("stm.SSCFrontShield.poly1.dz"));
+      {
+        std::vector<double> c;
+        _config.getVectorDouble("stm.SSCFrontShield.poly1.center", c, 3);
+        _SSCFrontShieldPoly1Center = CLHEP::Hep3Vector(c[0], c[1], c[2]) + fsShift;
+      }
+      _SSCFrontShieldPoly1BoreR  = _config.getDouble("stm.SSCFrontShield.poly1.boreR");
+      _SSCFrontShieldPoly1BoreDX = _config.getDouble("stm.SSCFrontShield.poly1.boreDX");
+      _SSCFrontShieldPoly1BoreDY = _config.getDouble("stm.SSCFrontShield.poly1.boreDY");
+
+      // poly2 carries its own x offset on top of the structure offset.
+      _SSCFrontShieldPoly2Material = _config.getString("stm.SSCFrontShield.poly2.material");
+      _SSCFrontShieldPoly2Dim = CLHEP::Hep3Vector(_config.getDouble("stm.SSCFrontShield.poly2.dx"),
+                                                  _config.getDouble("stm.SSCFrontShield.poly2.dy"),
+                                                  _config.getDouble("stm.SSCFrontShield.poly2.dz"));
+      {
+        std::vector<double> c;
+        _config.getVectorDouble("stm.SSCFrontShield.poly2.center", c, 3);
+        _SSCFrontShieldPoly2Center = CLHEP::Hep3Vector(c[0] + fsPoly2OffX, c[1], c[2]) + fsShift;
+      }
+    }
 
 
 
@@ -992,11 +1224,15 @@ namespace mu2e {
     _ElectronicSGapToSi    = _config.getDouble("stm.ElectronicShielding.GapToSi");
 
 
-    _STM_AbsorberBuild          = _config.getBool("stm.STM_Absorber.build");
-    _STM_Absorber_hW            = _config.getDouble("stm.STM_Absorber.hW");
-    _STM_Absorber_hH            = _config.getDouble("stm.STM_Absorber.hH");
-    _STM_Absorber_hT            = _config.getDouble("stm.STM_Absorber.hT");
-    _STM_Absorber_GaptoSSC      = _config.getDouble("stm.STM_Absorber.GaptoSSC");
+    // The SSC front shield replaces the absorber in the updated geometry,
+    // so only one description's keys are read.
+    if (!_handstacked) {
+      _STM_AbsorberBuild          = _config.getBool("stm.STM_Absorber.build");
+      _STM_Absorber_hW            = _config.getDouble("stm.STM_Absorber.hW");
+      _STM_Absorber_hH            = _config.getDouble("stm.STM_Absorber.hH");
+      _STM_Absorber_hT            = _config.getDouble("stm.STM_Absorber.hT");
+      _STM_Absorber_GaptoSSC      = _config.getDouble("stm.STM_Absorber.GaptoSSC");
+    }
 
   }
 } // namespace mu2e
