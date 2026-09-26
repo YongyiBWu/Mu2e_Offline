@@ -42,6 +42,8 @@
 #include "Offline/GeneralUtilities/inc/OrientationResolver.hh"
 
 #include <sstream>
+#include <vector>
+#include <algorithm>
 
 // G4 includes
 #include "Geant4/G4Material.hh"
@@ -55,6 +57,8 @@
 #include "Geant4/G4Cons.hh"
 #include "Geant4/G4SubtractionSolid.hh"
 #include "Geant4/G4UnionSolid.hh"
+#include "Geant4/G4ExtrudedSolid.hh"
+#include "Geant4/G4TwoVector.hh"
 #include "Geant4/G4LogicalVolume.hh"
 #include "Geant4/G4VPhysicalVolume.hh"
 #include "Geant4/G4UniformMagField.hh"
@@ -68,6 +72,43 @@
 using namespace std;
 
 namespace mu2e {
+
+  namespace {
+
+    // Bore a hole through a hand-stacked piece, along the beam.
+    //
+    // The pieces are built as unrotated solids and turned only at
+    // placement, so a subtraction sees the piece's OWN frame while the
+    // bore is known in Mu2e coordinates. Both the hole's position and
+    // its axis therefore have to be carried back through the placement
+    // rotation. Getting either wrong is silent: the hole lands
+    // somewhere else, or runs across the piece instead of through it,
+    // and the beam sees solid material with nothing to say so.
+    //
+    // solid    the piece so far, in its own frame
+    // rot      the rotation it will be placed with
+    // origin   the point its placement pins, in Mu2e
+    // boreAt   where the hole goes, in Mu2e
+    // radius   of the hole
+    // reach    how long to make it; anything past the piece is fine
+    // name     for the solid this returns
+    G4VSolid* boreAlongBeam(G4VSolid* solid,
+                            CLHEP::HepRotation const & rot,
+                            CLHEP::Hep3Vector const & origin,
+                            CLHEP::Hep3Vector const & boreAt,
+                            double radius,
+                            double reach,
+                            std::string const & name,
+                            AntiLeakRegistry & reg) {
+      G4Tubs* hole = new G4Tubs(name + "Hole", 0., radius, reach,
+                                0., CLHEP::twopi);
+      const CLHEP::Hep3Vector offset = rot.inverse() * (boreAt - origin);
+      CLHEP::HepRotation* holeRot = reg.add(CLHEP::HepRotation(rot.inverse()));
+      return new G4SubtractionSolid(name, solid, hole, holeRot,
+                                    G4ThreeVector(offset.x(), offset.y(), offset.z()));
+    }
+
+  } // anonymous namespace
 
   void constructSTM(const SimpleConfig& _config){
 
@@ -89,7 +130,12 @@ namespace mu2e {
     HPGeDetector    const & pHPGeDetectorParams            = *stmgh.getHPGeDetectorPtr();
     LaBrDetector    const & pLaBrDetectorParams            = *stmgh.getLaBrDetectorPtr();
 
-    FrontShielding  const & pFrontShieldingParams          = *stmgh.getFrontShieldingPtr();
+    // The updated geometry replaces the single front shielding with a
+    // left and a right half, so exactly one of these is built and the
+    // other is null. Taken as pointers for that reason.
+    FrontShielding      const * pFrontShieldingPtr         = stmgh.getFrontShieldingPtr();
+    FrontShieldingRight const * pFrontShieldingRightPtr    = stmgh.getFrontShieldingRightPtr();
+    FrontShieldingLeft  const * pFrontShieldingLeftPtr     = stmgh.getFrontShieldingLeftPtr();
     LeftShielding   const & pLeftShieldingParams           = *stmgh.getLeftShieldingPtr();
     RightShielding  const & pRightShieldingParams          = *stmgh.getRightShieldingPtr();
     TopShielding    const & pTopShieldingParams            = *stmgh.getTopShieldingPtr();
@@ -1736,28 +1782,48 @@ namespace mu2e {
     // The wear is taken off each face, so a brick is (dx - 2*wear) on a
     // side and stays centred where it is placed: a stack keeps its
     // nominal pitch and the wear opens as gaps between bricks.
-    G4Box*      LeadBrick2x4x8S   = nullptr;
-    G4Box*      LeadBrick2x4x16S  = nullptr;
+    // One solid per type, indexed from 0 so that type n is at n-1.
+    // Built from the list rather than from named sizes, so adding a
+    // size to the geometry file needs no change here.
+    std::vector<G4Box*> LeadBrickS;
     G4Material* LeadBrickMaterial = nullptr;
     if (stmgh.handstacked()) {
       LeadBrick const & pLeadBrickParams = *stmgh.getLeadBrickPtr();
-      const CLHEP::Hep3Vector b8  = pLeadBrickParams.worn2x4x8();
-      const CLHEP::Hep3Vector b16 = pLeadBrickParams.worn2x4x16();
-      LeadBrick2x4x8S   = new G4Box("LeadBrick2x4x8S",
-                                    b8.x()/2,  b8.y()/2,  b8.z()/2);
-      LeadBrick2x4x16S  = new G4Box("LeadBrick2x4x16S",
-                                    b16.x()/2, b16.y()/2, b16.z()/2);
+      for (size_t t = 1; t <= pLeadBrickParams.nTypes(); ++t) {
+        const CLHEP::Hep3Vector d = pLeadBrickParams.worn(t);
+        LeadBrickS.push_back(new G4Box("LeadBrick" + pLeadBrickParams.name(t) + "S",
+                                       d.x()/2, d.y()/2, d.z()/2));
+      }
       LeadBrickMaterial = findMaterialOrThrow(pLeadBrickParams.material());
     }
 
     /////////// Front Shielding /////////////////////
+    //
+    // These three are used by the Bottom, Left, Right, Top, Inner and
+    // Electronic sections below. Those are still the earlier
+    // description and are due to be replaced, so the values stay zero
+    // under the updated geometry and are set only by the branch that
+    // needs them.
+    double height  = 0.;
+    double Front_T = 0.;
+    double Front_L = 0.;
 
-    const double height = pFrontShieldingParams.HeightofRoom();
-    const double Front_T = pFrontShieldingParams.Front_Thickness() + pSTM_SSCParams.ZGap();
-    const double Front_L = pFrontShieldingParams.Front_Length();
+    if (stmgh.handstacked()) {
+      // Front_T is the z of the front shielding's downstream face. In
+      // the updated geometry that is the back of the right half's
+      // copper lining, resolved by STMMaker where the lining's
+      // rotation is in hand. height and Front_L belong to sections
+      // that are not migrated yet and stay zero until they are.
+      if (pFrontShieldingRightPtr) Front_T = pFrontShieldingRightPtr->backZ();
+    } else if (pFrontShieldingPtr) {
+      height  = pFrontShieldingPtr->HeightofRoom();
+      Front_T = pFrontShieldingPtr->Front_Thickness() + pSTM_SSCParams.ZGap();
+      Front_L = pFrontShieldingPtr->Front_Length();
+    } // kept available even if the front shielding is not built
 
-    if(pFrontShieldingParams.build())
+    if(!stmgh.handstacked() && pFrontShieldingPtr && pFrontShieldingPtr->build())
    {
+    FrontShielding const & pFrontShieldingParams = *pFrontShieldingPtr;
     /////////////////////////////////////////////////////////////////////
     //Support for the SSC
 
@@ -2013,7 +2079,390 @@ namespace mu2e {
      forceAuxEdgeVisible,
      placePV,
      doSurfaceCheck);
-   }
+   } // end of (non-handstacked) front shiedlding block
+
+    /////////// Front Shielding, right //////////////
+    //
+    // The updated description of the section behind the collimator,
+    // standing where the earlier single front shielding did: three
+    // lead courses interleaved with two borated poly layers, on four
+    // aluminium blocks, with the two collimator pipes and the copper
+    // lining in front.
+    //
+    // Every position arrives resolved from STMMaker -- the courses were
+    // expanded from type lists and each bore checked against the brick
+    // it is mapped to -- so nothing is derived here.
+    else if(stmgh.handstacked())
+   {
+      LeadBrick const & pLeadBrickParams = *stmgh.getLeadBrickPtr();
+
+      // The updated geometry splits the old single front shielding into
+      // two halves, so both live in this branch as the alternative to it.
+      // Each still carries its own build flag, so either can be dropped
+      // without touching the other.
+
+      if(pFrontShieldingRightPtr && pFrontShieldingRightPtr->build())
+      {
+        FrontShieldingRight const & pFSRParams = *pFrontShieldingRightPtr;
+
+        ////////////////////////////////////////
+        // The lead courses
+
+        int fsrBrickIndex = 0;
+        for (auto const & layer : pFSRParams.leadLayers()) {
+          for (auto const & brick : layer.bricks()) {
+            std::ostringstream name;
+            name << "LeadFrontShieldingRightBrick" << ++fsrBrickIndex << "PV";
+
+            // The shared solids are the unbored ones, indexed by type so
+            // that a size added to the geometry file needs no change
+            // here. A brick carrying holes gets its own solid, since the
+            // holes sit where the beam passes and no two such bricks
+            // need agree.
+            if (brick.type < 1 || brick.type > int(LeadBrickS.size())) {
+              throw cet::exception("GEOM")
+                << "constructSTM: FrontShieldingRight brick " << fsrBrickIndex
+                << " is of type " << brick.type << ", but only "
+                << LeadBrickS.size() << " brick types are defined.\n";
+            }
+            CLHEP::HepRotation* rot =
+              reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+            OR.getRotationFromOrientation(*rot, brick.orientation);
+
+            G4VSolid* solid = LeadBrickS[brick.type-1];
+            for (size_t i = 0; i < brick.bores.size(); ++i) {
+              BrickWallBore const & bore = layer.bores().at(brick.bores[i]-1);
+              // Long enough to punch through whichever way it is turned.
+              const CLHEP::Hep3Vector d = pLeadBrickParams.worn(brick.type);
+              const double reach = std::max({d.x(), d.y(), d.z()})/2 + 10.0;
+              std::ostringstream sname;
+              sname << name.str() << "Solid" << i+1;
+              solid = boreAlongBeam(solid, *rot, brick.center, bore.center,
+                                    bore.radius, reach, sname.str(), reg);
+            }
+
+            VolumeInfo LeadFrontShieldingRightBrick;
+            LeadFrontShieldingRightBrick.name  = name.str();
+            LeadFrontShieldingRightBrick.solid = solid;
+
+            finishNesting(LeadFrontShieldingRightBrick,
+            LeadBrickMaterial,
+            rot,
+            STMShieldingRef + brick.center,
+            parentInfo.logical,
+            0,
+            STMisVisible,
+            G4Colour::Gray(),
+            STMisSolid,
+            forceAuxEdgeVisible,
+            placePV,
+            doSurfaceCheck);
+          }
+        }
+
+        ////////////////////////////////////////
+        // The borated poly sheets
+
+        int fsrSheetIndex = 0;
+        for (auto const & sheet : pFSRParams.sheets()) {
+          std::ostringstream name;
+          name << "BPFrontShieldingRightLayer" << ++fsrSheetIndex << "PV";
+
+          CLHEP::HepRotation* sheetRot =
+            reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+          OR.getRotationFromOrientation(*sheetRot, sheet.orientation);
+
+          G4VSolid* solid = new G4Box(name.str() + "Box",
+                                      sheet.halfDim.x(), sheet.halfDim.y(), sheet.halfDim.z());
+          for (size_t i = 0; i < sheet.bores.size(); ++i) {
+            BrickWallBore const & bore =
+              pFSRParams.leadLayers().front().bores().at(sheet.bores[i]-1);
+            std::ostringstream sname;
+            sname << name.str() << "Solid" << i+1;
+            solid = boreAlongBeam(solid, *sheetRot, sheet.center, bore.center,
+                                  sheet.boreRadius.at(i),
+                                  sheet.halfDim.z() + 10.0, sname.str(), reg);
+          }
+
+          VolumeInfo BPFrontShieldingRightLayer;
+          BPFrontShieldingRightLayer.name  = name.str();
+          BPFrontShieldingRightLayer.solid = solid;
+
+          finishNesting(BPFrontShieldingRightLayer,
+          findMaterialOrThrow(sheet.material),
+          sheetRot,
+          STMShieldingRef + sheet.center,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Cyan(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        ////////////////////////////////////////
+        // The aluminium blocks the wall stands on
+
+        G4Box* AluminumFrontShieldingRightBlock =
+          new G4Box("AluminumFrontShieldingRightBlock",
+                    pFSRParams.blockHalfDim().x(),
+                    pFSRParams.blockHalfDim().y(),
+                    pFSRParams.blockHalfDim().z());
+
+        int fsrBlockIndex = 0;
+        for (auto const & c : pFSRParams.blockCenter()) {
+          std::ostringstream name;
+          name << "AluminumFrontShieldingRightBlock" << ++fsrBlockIndex << "PV";
+
+          VolumeInfo AluminumFrontShieldingRightBlockPV;
+          AluminumFrontShieldingRightBlockPV.name  = name.str();
+          AluminumFrontShieldingRightBlockPV.solid = AluminumFrontShieldingRightBlock;
+
+          finishNesting(AluminumFrontShieldingRightBlockPV,
+          findMaterialOrThrow(pFSRParams.blockMaterial()),
+          0,
+          STMShieldingRef + c,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Green(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        ////////////////////////////////////////
+        // The two collimator pipes
+
+        int fsrPipeIndex = 0;
+        for (auto const & pipe : pFSRParams.pipes()) {
+          std::ostringstream name;
+          name << "CopperFrontShieldingRightPipe" << ++fsrPipeIndex << "PV";
+
+          G4Tubs* CopperFrontShieldingRightPipe =
+            new G4Tubs(name.str() + "Tub", pipe.rIn, pipe.rOut, pipe.halfLength,
+                       0., CLHEP::twopi);
+
+          VolumeInfo CopperFrontShieldingRightPipePV;
+          CopperFrontShieldingRightPipePV.name  = name.str();
+          CopperFrontShieldingRightPipePV.solid = CopperFrontShieldingRightPipe;
+
+          finishNesting(CopperFrontShieldingRightPipePV,
+          findMaterialOrThrow(pipe.material),
+          0,
+          STMShieldingRef + pipe.center,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Brown(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        ////////////////////////////////////////
+        // The copper lining: a trapezoid swept along y and bored on the
+        // beam axes, placed by the anchor corner of its outline rather
+        // than by a centre.
+
+        {
+          FrontShieldingRightPlate const & plate = pFSRParams.plate();
+
+          std::vector<G4TwoVector> outline;
+          for (size_t i = 0; i < plate.uVerts.size(); ++i) {
+            outline.push_back(G4TwoVector(plate.uVerts[i], plate.vVerts[i]));
+          }
+
+          G4VSolid* CopperFrontShieldingRightLining =
+            new G4ExtrudedSolid("CopperFrontShieldingRightLining", outline,
+                                plate.length/2,
+                                G4TwoVector(), 1.0, G4TwoVector(), 1.0);
+
+          CLHEP::HepRotation* liningRot =
+            reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+          OR.getRotationFromOrientation(*liningRot, plate.orientation);
+
+          for (size_t i = 0; i < plate.bores.size(); ++i) {
+            BrickWallBore const & bore =
+              pFSRParams.leadLayers().front().bores().at(plate.bores[i]-1);
+            std::ostringstream sname;
+            sname << "CopperFrontShieldingRightLiningSolid" << i+1;
+            // This one is placed by an anchor corner rather than a
+            // centre, so that is the origin the offset is taken from.
+            CopperFrontShieldingRightLining =
+              boreAlongBeam(CopperFrontShieldingRightLining, *liningRot,
+                            plate.anchor, bore.center,
+                            plate.holeRadius.at(i),
+                            plate.length/2 + 10.0, sname.str(), reg);
+          }
+
+          VolumeInfo CopperFrontShieldingRightLiningPV;
+          CopperFrontShieldingRightLiningPV.name  = "CopperFrontShieldingRightLiningPV";
+          CopperFrontShieldingRightLiningPV.solid = CopperFrontShieldingRightLining;
+
+          finishNesting(CopperFrontShieldingRightLiningPV,
+          findMaterialOrThrow(plate.material),
+          liningRot,
+          STMShieldingRef + plate.anchor,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Brown(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        if ( verbosityLevel > 0) {
+          cout << __func__ << " FrontShieldingRight : "
+               << fsrBrickIndex << " bricks, "
+               << fsrSheetIndex << " poly sheets, "
+               << fsrBlockIndex << " blocks, "
+               << fsrPipeIndex  << " pipes, and the copper lining with "
+               << pFSRParams.plate().bores.size() << " holes" << endl;
+        }
+
+      }  // FrontShieldingRight
+
+
+      ////////////////////////////////////////////////////////////////////
+      // Front shielding, left: the half beside the collimator.
+      //
+      // Nothing here is bored -- the beam passes through the right half --
+      // so no piece needs a subtraction, and the poly does not interleave
+      // with the lead the way the right half's does. Four sheets, three
+      // groups of bricks and a lead prism, 22 pieces in all.
+      //
+      // Every position arrives resolved from STMMaker, keyed off the right
+      // half, so nothing is derived here.
+      if(pFrontShieldingLeftPtr && pFrontShieldingLeftPtr->build())
+      {
+        FrontShieldingLeft const & pFSLParams = *pFrontShieldingLeftPtr;
+
+        ////////////////////////////////////////
+        // The lead bricks: the block, the edge course and the grid
+
+        int fslBrickIndex = 0;
+        for (auto const & group : pFSLParams.brickGroups()) {
+          for (auto const & brick : group.bricks()) {
+            std::ostringstream name;
+            name << "LeadFrontShieldingLeftBrick" << ++fslBrickIndex << "PV";
+
+            // Unbored throughout, so every brick is one of the shared
+            // solids, indexed by type as in the right half.
+            if (brick.type < 1 || brick.type > int(LeadBrickS.size())) {
+              throw cet::exception("GEOM")
+                << "constructSTM: FrontShieldingLeft brick " << fslBrickIndex
+                << " is of type " << brick.type << ", but only "
+                << LeadBrickS.size() << " brick types are defined.\n";
+            }
+
+            CLHEP::HepRotation* rot =
+              reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+            OR.getRotationFromOrientation(*rot, brick.orientation);
+
+            VolumeInfo LeadFrontShieldingLeftBrick;
+            LeadFrontShieldingLeftBrick.name  = name.str();
+            LeadFrontShieldingLeftBrick.solid = LeadBrickS[brick.type-1];
+
+            finishNesting(LeadFrontShieldingLeftBrick,
+            LeadBrickMaterial,
+            rot,
+            STMShieldingRef + brick.center,
+            parentInfo.logical,
+            0,
+            STMisVisible,
+            G4Colour::Gray(),
+            STMisSolid,
+            forceAuxEdgeVisible,
+            placePV,
+            doSurfaceCheck);
+          }
+        }
+
+        ////////////////////////////////////////
+        // The borated poly sheets: side, outer, inner, edge
+
+        int fslSheetIndex = 0;
+        for (auto const & sheet : pFSLParams.sheets()) {
+          std::ostringstream name;
+          name << "BPFrontShieldingLeftSheet" << ++fslSheetIndex << "PV";
+
+          // No rotation: halfDim is already in the Mu2e frame, so which of
+          // the three is the 1 in thickness is read off it rather than
+          // turned into place here.
+          VolumeInfo BPFrontShieldingLeftSheet;
+          BPFrontShieldingLeftSheet.name  = name.str();
+          BPFrontShieldingLeftSheet.solid =
+            new G4Box(name.str() + "Box",
+                      sheet.halfDim.x(), sheet.halfDim.y(), sheet.halfDim.z());
+
+          finishNesting(BPFrontShieldingLeftSheet,
+          findMaterialOrThrow(sheet.material),
+          0,
+          STMShieldingRef + sheet.center,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Cyan(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        ////////////////////////////////////////
+        // The lead prism, placed by its right angle rather than by a
+        // centre, the same way the right half's copper lining is placed.
+
+        {
+          FrontShieldingLeftPrism const & prism = pFSLParams.prism();
+
+          std::vector<G4TwoVector> outline;
+          for (size_t i = 0; i < prism.uVerts.size(); ++i) {
+            outline.push_back(G4TwoVector(prism.uVerts[i], prism.vVerts[i]));
+          }
+
+          CLHEP::HepRotation* prismRot =
+            reg.add(CLHEP::HepRotation(CLHEP::HepRotation::IDENTITY));
+          OR.getRotationFromOrientation(*prismRot, prism.orientation);
+
+          VolumeInfo LeadFrontShieldingLeftPrismPV;
+          LeadFrontShieldingLeftPrismPV.name  = "LeadFrontShieldingLeftPrismPV";
+          LeadFrontShieldingLeftPrismPV.solid =
+            new G4ExtrudedSolid("LeadFrontShieldingLeftPrism", outline,
+                                prism.length/2,
+                                G4TwoVector(), 1.0, G4TwoVector(), 1.0);
+
+          finishNesting(LeadFrontShieldingLeftPrismPV,
+          findMaterialOrThrow(prism.material),
+          prismRot,
+          STMShieldingRef + prism.anchor,
+          parentInfo.logical,
+          0,
+          STMisVisible,
+          G4Colour::Gray(),
+          STMisSolid,
+          forceAuxEdgeVisible,
+          placePV,
+          doSurfaceCheck);
+        }
+
+        if ( verbosityLevel > 0) {
+          cout << __func__ << " FrontShieldingLeft : "
+               << fslBrickIndex << " bricks in "
+               << pFSLParams.brickGroups().size() << " groups, "
+               << fslSheetIndex << " poly sheets, and the lead prism" << endl;
+        }
+
+      }  // FrontShieldingLeft
+
+   }  // handstacked front shielding
 
 
     if(pSSCSupportParams.build() && stmgh.handstacked())
@@ -2069,7 +2518,7 @@ namespace mu2e {
        const double chain = Cradle_side_H - Cradle_side_top + Cradle_bot_T;
        cout << __func__ << " STM SSC cradle: bore sits " << chain
             << " mm above the baseplate (config boreToBase = "
-            << pSSCSupportParams.boreToBase() << ")" << endl;
+            << pSTM_SSCParams.boreToBase() << ")" << endl;
      }
 
     ////////////////////////////////////////
@@ -4015,10 +4464,13 @@ namespace mu2e {
           }
         };
 
-      placeBricks(LeadBrick2x4x16S,
+      // This section names its two brick lists by size rather than by
+      // type, so it takes the solids by type number: 1 is the 16 in
+      // brick and 2 the 8 in one, as stm.leadBrick.type* declares them.
+      placeBricks(LeadBrickS.at(0),
                   pSSCFrontShieldParams.brick2x4x16Center(),
                   pSSCFrontShieldParams.brick2x4x16Orientation());
-      placeBricks(LeadBrick2x4x8S,
+      placeBricks(LeadBrickS.at(1),
                   pSSCFrontShieldParams.brick2x4x8Center(),
                   pSSCFrontShieldParams.brick2x4x8Orientation());
 

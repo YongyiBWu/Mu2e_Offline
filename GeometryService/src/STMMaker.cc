@@ -13,9 +13,13 @@
 #include <cmath>
 #include <vector>
 #include <sstream>
+#include <algorithm>
 
 // clhep includes
 #include "CLHEP/Vector/ThreeVector.h"
+#include "CLHEP/Vector/Rotation.h"
+
+#include "Offline/GeneralUtilities/inc/OrientationResolver.hh"
 
 // Framework includes
 #include "messagefacility/MessageLogger/MessageLogger.h"
@@ -34,6 +38,37 @@
 using namespace std;
 
 namespace mu2e {
+
+  namespace {
+
+    // How far a box reaches along one direction once it has been
+    // turned.
+    //
+    // The hand-stacked sections describe a piece by its dimensions in
+    // its own frame plus an orientation code, so those dimensions do
+    // not say how much of any Mu2e axis the piece occupies until the
+    // rotation is applied. Reaching for dx because a piece "looks
+    // long in x" is the recurring mistake here: a 2x4x16 brick laid on
+    // its side spans 2 in along a course whose dx says 16, and the
+    // copper lining's 12.7 mm depth is its outline's v range under one
+    // orientation and its sweep under another.
+    //
+    // dim is in the piece's own frame; rot is the placement rotation;
+    // dir is the Mu2e direction asked about, and should be a unit
+    // vector.
+    double spanAlong(CLHEP::Hep3Vector const & dim,
+                     CLHEP::HepRotation const & rot,
+                     CLHEP::Hep3Vector const & dir) {
+      double span = 0.;
+      for (int k = 0; k < 3; ++k) {
+        const CLHEP::Hep3Vector axis =
+          rot * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+        span += std::abs(axis.dot(dir)) * dim[k];
+      }
+      return span;
+    }
+
+  } // anonymous namespace
 
   // Constructor that gets information from the config file instead of
   // from arguments.
@@ -58,8 +93,8 @@ namespace mu2e {
     // The shared standard lead bricks. 
     if (_handstacked) {
       stm._pLeadBrickParams = std::unique_ptr<LeadBrick>
-              (new LeadBrick(_leadBrick2x4x8Dim,
-                             _leadBrick2x4x16Dim,
+              (new LeadBrick(_leadBrickNames,
+                             _leadBrickDims,
                              _leadBrickWear,
                              _leadBrickMaterial));
     }
@@ -389,6 +424,7 @@ namespace mu2e {
                                _STM_SSCFrontToWall,
                                _STM_SSCZGap,
                                _STM_SSCZGapBack,
+                               _STM_SSCboreToBase,
                                _STM_SSCOffsetInMu2e,
                                _STM_SSCRotation,
                                _STM_SSCMaterial));
@@ -432,7 +468,6 @@ namespace mu2e {
                                _SSCSupportplate_base_T,
                                _SSCSupportbottom_T,
                                _SSCSupporttop_T,
-                               _SSCSupportboreToBase,
                                _SSCSupportMaterial,
                                _SSCSupportOffsetInMu2e,
                                _SSCSupportRotation));
@@ -467,12 +502,45 @@ namespace mu2e {
 
    ////////////////////////////////////////////////////////////////
    //STM Front Shielding
+   //
+   // The updated geometry splits this into a left and a right half.
+   // The right one -- the section behind the collimator -- is built
+   // here in place of the earlier single description; its lead courses
+   // and poly sheets were expanded from the config's type lists in
+   // parseConfig, so what is passed on are finished placements.
 
-    const CLHEP::HepRotation _FrontSRotation   = CLHEP::HepRotation::IDENTITY;
-    const double _FrontS_Thickness = _FrontStungstendepth + _FrontSLeakForSSC + _FrontSleaddepth2*3 + _FrontSBPdepth*2 + _FrontScopperdepth;
-    const double _FrontS_Length    = _FrontStungstenlength + 2*_FrontSLeakForSSC + _FrontSfPb_lengthL + _FrontSfPb_lengthR;
+    // The front shielding's depth and width, used further down by the
+    // Bottom, Left, Right and Top sections. Those are still the earlier
+    // description and are due to be replaced, so these stay zero under
+    // the updated geometry and are set only by the branch that needs
+    // them.
+    double _FrontS_Thickness = 0.;
+    double _FrontS_Length    = 0.;
 
-    const CLHEP::Hep3Vector  _FrontSOffsetInMu2e = _STMShieldingRef + CLHEP::Hep3Vector(0, 0, _FrontS_Thickness/2);
+    if (_handstacked) {
+      stm._pFrontShieldingRightParams = std::unique_ptr<FrontShieldingRight>
+              (new FrontShieldingRight(_FrontShieldingRightBuild,
+                                       _FrontShieldingRightLeadLayers,
+                                       _FrontShieldingRightSheets,
+                                       _FrontShieldingRightBlockMaterial,
+                                       _FrontShieldingRightBlockHalfDim,
+                                       _FrontShieldingRightBlockCenter,
+                                       _FrontShieldingRightPipes,
+                                       _FrontShieldingRightPlate,
+                                       _FrontShieldingRightBackZ));
+
+      stm._pFrontShieldingLeftParams = std::unique_ptr<FrontShieldingLeft>
+              (new FrontShieldingLeft(_FrontShieldingLeftBuild,
+                                      _FrontShieldingLeftSheets,
+                                      _FrontShieldingLeftBrickGroups,
+                                      _FrontShieldingLeftPrism));
+    } else {
+
+      const CLHEP::HepRotation _FrontSRotation   = CLHEP::HepRotation::IDENTITY;
+      _FrontS_Thickness = _FrontStungstendepth + _FrontSLeakForSSC + _FrontSleaddepth2*3 + _FrontSBPdepth*2 + _FrontScopperdepth;
+      _FrontS_Length    = _FrontStungstenlength + 2*_FrontSLeakForSSC + _FrontSfPb_lengthL + _FrontSfPb_lengthR;
+
+      const CLHEP::Hep3Vector  _FrontSOffsetInMu2e = _STMShieldingRef + CLHEP::Hep3Vector(0, 0, _FrontS_Thickness/2);
 
           stm._pSTMFrontShieldingParams = std::unique_ptr<FrontShielding>
           (new FrontShielding(_FrontShieldingBuild,
@@ -493,6 +561,7 @@ namespace mu2e {
                               _FrontSHole_r,
                               _FrontSOffsetInMu2e,
                               _FrontSRotation));
+    }
 
    ////////////////////////////////////////////////////////////////
    //STM HPGe Detector
@@ -757,12 +826,18 @@ namespace mu2e {
     // structure: most of the shield house is stacked from them, so they
     // are a shared primitive that many components refer to.
     if (_handstacked) {
-      _leadBrick2x4x8Dim  = CLHEP::Hep3Vector(_config.getDouble("stm.leadBrick.2x4x8.dx"),
-                                              _config.getDouble("stm.leadBrick.2x4x8.dy"),
-                                              _config.getDouble("stm.leadBrick.2x4x8.dz"));
-      _leadBrick2x4x16Dim = CLHEP::Hep3Vector(_config.getDouble("stm.leadBrick.2x4x16.dx"),
-                                              _config.getDouble("stm.leadBrick.2x4x16.dy"),
-                                              _config.getDouble("stm.leadBrick.2x4x16.dz"));
+      // Read by number, so adding a size to the geometry file is
+      // enough: nothing here or downstream names a particular one.
+      const int nBrickTypes = _config.getInt("stm.leadBrick.typeN");
+      for (int t = 1; t <= nBrickTypes; ++t) {
+        const std::string name =
+          _config.getString("stm.leadBrick.type" + std::to_string(t));
+        _leadBrickNames.push_back(name);
+        _leadBrickDims.push_back(
+          CLHEP::Hep3Vector(_config.getDouble("stm.leadBrick." + name + ".dx"),
+                            _config.getDouble("stm.leadBrick." + name + ".dy"),
+                            _config.getDouble("stm.leadBrick." + name + ".dz")));
+      }
       _leadBrickWear      = _config.getDouble("stm.leadBrick.wear");
       _leadBrickMaterial  = _config.getString("stm.leadBrick.material");
     }
@@ -935,6 +1010,9 @@ namespace mu2e {
       _STM_SSCr_HPGe_f     = _config.getDouble("stm.STM_SSC.r_HPGe_f");
       _STM_SSCr_LaBr_b     = _config.getDouble("stm.STM_SSC.r_LaBr_b");
       _STM_SSCr_HPGe_b     = _config.getDouble("stm.STM_SSC.r_HPGe_b");
+      // The height of the bore above the baseplate: the datum every
+      // hand-stacked piece downstream measures its own height from.
+      _STM_SSCboreToBase   = _config.getDouble("stm.STM_SSC.boreToBase");
     } else {
       _STM_SSCdelta_WlR      = _config.getDouble("stm.STM_SSC.delta_WlR");
       _STM_SSCdelta_WlL      = _config.getDouble("stm.STM_SSC.delta_WlL");
@@ -962,31 +1040,30 @@ namespace mu2e {
       _SSCSupportplate_base_T = _config.getDouble("stm.SSCSupport.base_T");
       _SSCSupportbottom_T     = _config.getDouble("stm.SSCSupport.bottom_T");
       _SSCSupporttop_T        = _config.getDouble("stm.SSCSupport.top_T");
-      _SSCSupportboreToBase   = _config.getDouble("stm.SSCSupport.boreToBase");
       _SSCSupportMaterial     = _config.getString("stm.SSCSupport.material");
     } else {
-    _SSCSupporttable_L      = _config.getDouble("stm.SSCSupport.table_L");
-    _SSCSupporttable_H      = _config.getDouble("stm.SSCSupport.table_H");
-    _SSCSupporttable_T      = _config.getDouble("stm.SSCSupport.table_T");
-    _SSCSupportleg_L      = _config.getDouble("stm.SSCSupport.leg_L");
-    _SSCSupportleg_H      = _config.getDouble("stm.SSCSupport.leg_H");
-    _SSCSupportleg_T      = _config.getDouble("stm.SSCSupport.leg_T");
-    _SSCSupportbase_L      = _config.getDouble("stm.SSCSupport.base_L");
-    _SSCSupportbase_H      = _config.getDouble("stm.SSCSupport.base_H");
-    _SSCSupportbase_T      = _config.getDouble("stm.SSCSupport.base_T");
-    _SSCSupportwall_L      = _config.getDouble("stm.SSCSupport.wall_L");
-    _SSCSupportwall_H      = _config.getDouble("stm.SSCSupport.wall_H");
-    _SSCSupportwall_T      = _config.getDouble("stm.SSCSupport.wall_T");
-    _SSCSupporthole_H      = _config.getDouble("stm.SSCSupport.hole_H");
-    _SSCSupporthole_T      = _config.getDouble("stm.SSCSupport.hole_T");
-    _SSCSupportFLeadStand_L      = _config.getDouble("stm.SSCSupport.FLeadStand_L");
-    _SSCSupportFLeadStand_H      = _config.getDouble("stm.SSCSupport.FLeadStand_H");
-    _SSCSupportFLeadStand_T      = _config.getDouble("stm.SSCSupport.FLeadStand_T");
-    _SSCSupportFLeadShim_H       = _config.getDouble("stm.SSCSupport.FLeadShim_H");
-    _SSCSupportFLeadShim_T       = _config.getDouble("stm.SSCSupport.FLeadShim_T");
-    _SSCSupportFAluminumShim_T   = _config.getDouble("stm.SSCSupport.FAluminumShim_T");
-    _SSCSupportFAluminumExtra_L  = _config.getDouble("stm.SSCSupport.FAluminumExtra_L");
-    _SSCSupportFAluminumExtra_H  = _config.getDouble("stm.SSCSupport.FAluminumExtra_H");
+      _SSCSupporttable_L      = _config.getDouble("stm.SSCSupport.table_L");
+      _SSCSupporttable_H      = _config.getDouble("stm.SSCSupport.table_H");
+      _SSCSupporttable_T      = _config.getDouble("stm.SSCSupport.table_T");
+      _SSCSupportleg_L      = _config.getDouble("stm.SSCSupport.leg_L");
+      _SSCSupportleg_H      = _config.getDouble("stm.SSCSupport.leg_H");
+      _SSCSupportleg_T      = _config.getDouble("stm.SSCSupport.leg_T");
+      _SSCSupportbase_L      = _config.getDouble("stm.SSCSupport.base_L");
+      _SSCSupportbase_H      = _config.getDouble("stm.SSCSupport.base_H");
+      _SSCSupportbase_T      = _config.getDouble("stm.SSCSupport.base_T");
+      _SSCSupportwall_L      = _config.getDouble("stm.SSCSupport.wall_L");
+      _SSCSupportwall_H      = _config.getDouble("stm.SSCSupport.wall_H");
+      _SSCSupportwall_T      = _config.getDouble("stm.SSCSupport.wall_T");
+      _SSCSupporthole_H      = _config.getDouble("stm.SSCSupport.hole_H");
+      _SSCSupporthole_T      = _config.getDouble("stm.SSCSupport.hole_T");
+      _SSCSupportFLeadStand_L      = _config.getDouble("stm.SSCSupport.FLeadStand_L");
+      _SSCSupportFLeadStand_H      = _config.getDouble("stm.SSCSupport.FLeadStand_H");
+      _SSCSupportFLeadStand_T      = _config.getDouble("stm.SSCSupport.FLeadStand_T");
+      _SSCSupportFLeadShim_H       = _config.getDouble("stm.SSCSupport.FLeadShim_H");
+      _SSCSupportFLeadShim_T       = _config.getDouble("stm.SSCSupport.FLeadShim_T");
+      _SSCSupportFAluminumShim_T   = _config.getDouble("stm.SSCSupport.FAluminumShim_T");
+      _SSCSupportFAluminumExtra_L  = _config.getDouble("stm.SSCSupport.FAluminumExtra_L");
+      _SSCSupportFAluminumExtra_H  = _config.getDouble("stm.SSCSupport.FAluminumExtra_H");
     }
 
     // ---- SSC front shield ---------------------------------------------
@@ -1097,24 +1174,650 @@ namespace mu2e {
     }
 
 
+    if (_handstacked) {
+      // ---- Front shielding, right ---------------------------------------
+      //
+      // The config gives a pattern, not positions: courses as lists of
+      // brick types, a layer sequence in depth, and a map saying which
+      // bores pass through which brick. Everything is expanded here, so
+      // the construction code receives finished placements.
+      //
+      // Three constraints fix the section. brickEndX pins the +x end of
+      // every course; the bore sits boreToBase above the baseplate with
+      // courses on a 4 in pitch from it; and wallToCradleGap sets the
+      // wall's front face behind the cradle. Pieces then butt together.
 
+      _FrontShieldingRightBuild = _config.getBool("stm.FrontShieldingRight.build");
 
-    _FrontShieldingBuild   = _config.getBool(  "stm.FrontShielding.build");
-    _FrontSHeightofRoom    = _config.getDouble("stm.FrontShielding.HeightofRoom");
-    _FrontStungstenlength  = _config.getDouble("stm.FrontShielding.tungstenlength");
-    _FrontStungstendepth   = _config.getDouble("stm.FrontShielding.tungstendepth");
-    _FrontSleaddepth1      = _config.getDouble("stm.FrontShielding.leaddepth1");
-    _FrontSleaddepth2      = _config.getDouble("stm.FrontShielding.leaddepth2");
-    _FrontSaluminumdepth   = _config.getDouble("stm.FrontShielding.aluminumdepth");
-    _FrontScopperdepth     = _config.getDouble("stm.FrontShielding.copperdepth");
-    _FrontSBPdepth         = _config.getDouble("stm.FrontShielding.BPdepth");
-    _FrontSfPb_lengthL     = _config.getDouble("stm.FrontShielding.fPb_lengthL");
-    _FrontSfPb_lengthR     = _config.getDouble("stm.FrontShielding.fPb_lengthR");
-    _FrontSGapForTop       = _config.getDouble("stm.FrontShielding.GapForTop");
-    _FrontSLeakForSSC      = _config.getDouble("stm.FrontShielding.LeakForSSC");
-    _FrontSCopperL         = _config.getDouble("stm.FrontShielding.CopperL");
-    _FrontS_H              = _config.getDouble("stm.FrontShielding.FrontS_H");
-    _FrontSHole_r          = _config.getDouble("stm.FrontShielding.FrontSHole_r");
+      const double fsrBrickEndX = _config.getDouble("stm.FrontShieldingRight.brickEndX");
+      const double fsrGap       = _config.getDouble("stm.FrontShieldingRight.wallToCradleGap");
+      const double fsrPitch     = _config.getDouble("stm.FrontShieldingRight.coursePitch");
+      const std::string fsrBrickOrient =
+        _config.getString("stm.FrontShieldingRight.brickOrientation");
+
+      // The wall starts behind the cradle and grows downstream.
+      const double fsrFrontZ = _SSCSupportdepth + fsrGap;
+
+      // The bores follow the collimator rather than the wall, so they
+      // are placed from offset_Spot with only a correction of their
+      // own. Their y is the beam plane.
+      std::vector<BrickWallBore> fsrBores;
+      const int fsrBoreN = _config.getInt("stm.FrontShieldingRight.boreN");
+      for (int i = 1; i <= fsrBoreN; ++i) {
+        std::ostringstream base;
+        base << "stm.FrontShieldingRight.bore" << i;
+        BrickWallBore b;
+        b.axis   = _config.getString(base.str() + "Axis");
+        b.radius = _config.getDouble(base.str() + "R");
+        b.offset = CLHEP::Hep3Vector(_config.getDouble(base.str() + "OffsetX"),
+                                     _config.getDouble(base.str() + "OffsetY"), 0.);
+        const double sign = (b.axis == "LaBr") ? +1. : -1.;
+        b.center = CLHEP::Hep3Vector(sign*_STM_SSCoffset_Spot + b.offset.x(),
+                                     b.offset.y(), 0.);
+        fsrBores.push_back(b);
+      }
+
+      // Which bores go through which brick: {layer, course, position,
+      // bore}, one entry per hole.
+      struct FSRBoreMapEntry { int layer, course, position, bore; };
+      std::vector<FSRBoreMapEntry> fsrBoreMap;
+      const int fsrBoreMapN = _config.getInt("stm.FrontShieldingRight.leadBoreMapN");
+      for (int i = 1; i <= fsrBoreMapN; ++i) {
+        std::ostringstream key;
+        key << "stm.FrontShieldingRight.leadBoreMap" << i;
+        std::vector<int> e;
+        _config.getVectorInt(key.str(), e, 4);
+        fsrBoreMap.push_back({e[0], e[1], e[2], e[3]});
+      }
+
+      // Courses, numbered so that n = 0 is the one the beam passes
+      // through.
+      std::vector<int> fsrCourse;
+      const int fsrCourseN = _config.getInt("stm.FrontShieldingRight.courseN");
+      for (int i = 1; i <= fsrCourseN; ++i) {
+        std::ostringstream key;
+        key << "stm.FrontShieldingRight.course" << i;
+        fsrCourse.push_back(_config.getInt(key.str()));
+      }
+
+      // Where the courses actually sit.
+      //
+      // They stack up from the baseplate -- block, then course after
+      // course -- so their height comes from that chain, not from the
+      // beam. The beam's own height is boreToBase above the same
+      // baseplate, and the two coincide only if the chain happens to
+      // leave half a course on the beam plane. That is true of this
+      // section as built (236.000 - 83.600 - 101.600 = 50.800, half a
+      // course) but it is arithmetic, not a constraint, so the offset
+      // is derived here and checked against the bores below.
+      const int fsrCoursesBelow =
+        std::count_if(fsrCourse.begin(), fsrCourse.end(),
+                      [](int n) { return n < 0; });
+      const double fsrBlockDyForCourses =
+        _config.getDouble("stm.FrontShieldingRight.block.dy");
+      const double fsrCourseOffsetY =
+        -_STM_SSCboreToBase + fsrBlockDyForCourses
+        + fsrCoursesBelow*fsrPitch + fsrPitch/2;
+
+      // How much of the course a brick of this type takes up. Rotation
+      // is also taken into consideration
+      const CLHEP::Hep3Vector fsrCourseDir(-1., 0., 0.);  // courses run toward -x
+      const CLHEP::Hep3Vector fsrPitchDir  ( 0., 1., 0.);  // courses stack upward
+      const CLHEP::Hep3Vector fsrDepthDir  ( 0., 0., 1.);  // layers face downstream
+      CLHEP::HepRotation fsrBrickRot(CLHEP::HepRotation::IDENTITY);
+      {
+        OrientationResolver OR;
+        OR.getRotationFromOrientation(fsrBrickRot, fsrBrickOrient);
+      }
+      auto fsrTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
+        if (type < 1 || type > int(_leadBrickDims.size())) {
+          throw cet::exception("GEOM")
+            << "STMMaker: FrontShieldingRight names brick type " << type
+            << ", but stm.leadBrick.typeN defines only "
+            << _leadBrickDims.size() << ".\n";
+        }
+        return spanAlong(_leadBrickDims[type-1], fsrBrickRot, dir);
+      };
+      auto fsrTypeWidth = [&](int type) { return fsrTypeSpan(type, fsrCourseDir); };
+
+      // Walk the layer sequence in depth. A lead layer expands into a
+      // BrickWall; a sheet layer into plates held by the section.
+      const int fsrLayerN = _config.getInt("stm.FrontShieldingRight.layerN");
+      double fsrZ = fsrFrontZ;
+      int fsrLeadLayer = 0;
+
+      const std::string fsrSheetMat =
+        _config.getString("stm.FrontShieldingRight.BPlayer.material");
+      const double fsrSheetT  = _config.getDouble("stm.FrontShieldingRight.BPlayer.thickness");
+      const double fsrSheetLo = _config.getDouble("stm.FrontShieldingRight.BPlayer.dyLower");
+      const double fsrSheetUp = _config.getDouble("stm.FrontShieldingRight.BPlayer.dyUpper");
+
+      // The courses span this, and the sheets share their footprint.
+      double fsrCourseWidth = 0.;
+
+      // The last lead layer's front face and thickness. The left half
+      // shares this plane, so it is recorded as the loop runs rather
+      // than worked back out of fsrZ afterwards, which by then has
+      // walked past the copper lining as well.
+      double fsrLastLeadZ = 0.;
+      double fsrLastLeadT = 0.;
+
+      for (int L = 1; L <= fsrLayerN; ++L) {
+        std::ostringstream key;
+        key << "stm.FrontShieldingRight.layer" << L;
+        const std::string kind = _config.getString(key.str());
+
+        if (kind == "Pb") {
+          ++fsrLeadLayer;
+
+          // How deep the layer is: the bricks' own thickness, rotated. Read
+          // from the first brick of the first course, since a layer is
+          // one brick deep and they all lie the same way up.
+          double thick = 0.;
+
+          std::vector<BrickWallBrick> bricks;
+          for (size_t c = 0; c < fsrCourse.size(); ++c) {
+            std::ostringstream ckey;
+            ckey << "stm.FrontShieldingRight.leadLayer" << fsrLeadLayer
+                 << "Course" << c+1;
+            std::vector<int> types;
+            _config.getVectorInt(ckey.str(), types);
+            if (types.empty()) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ckey.str() << " is empty.\n";
+            }
+
+            // The layer is one brick deep, so its thickness is that of
+            // any of its bricks projected onto the depth direction.
+            // Only assigned once, which is fine as all layers have the 
+            // same thickness.
+            if (thick == 0.) thick = fsrTypeSpan(types[0], fsrDepthDir);
+
+            // Butt the types end to end, flush at brickEndX.
+            double total = 0.;
+            for (int t : types) total += fsrTypeWidth(t);
+            fsrCourseWidth = total;
+            // x start at the -x end, increase over the following iteration
+            double x = fsrBrickEndX - total;
+            for (size_t p = 0; p < types.size(); ++p) {
+              const double w = fsrTypeWidth(types[p]);
+              BrickWallBrick b;
+              b.type        = types[p];
+              b.orientation = fsrBrickOrient;
+              // Final position: no offset is added later. Unlike
+              // SSCFrontShield, this section carries no whole-structure
+              // shift -- it is pinned by brickEndX, boreToBase and
+              // wallToCradleGap, so it is moved by tuning one of those
+              // rather than by displacing finished coordinates. The
+              // only offsets here are per-bore, and they are already in
+              // the bore centres above.
+              b.center      = CLHEP::Hep3Vector(x + w/2,
+                                                fsrCourseOffsetY + fsrCourse[c]*fsrPitch,
+                                                fsrZ + thick/2);
+              for (auto const & e : fsrBoreMap) {
+                if (e.layer == fsrLeadLayer && e.course == int(c)+1
+                    && e.position == int(p)+1) {
+                  if (e.bore < 1 || e.bore > fsrBoreN) {
+                    throw cet::exception("GEOM")
+                      << "STMMaker: FrontShieldingRight bore map names bore "
+                      << e.bore << ", but only " << fsrBoreN << " are defined.\n";
+                  }
+                  // The holes are pinned to the beam axes while
+                  // brickEndX positions the courses, so the two can be
+                  // moved apart. Check the hole really lands on the
+                  // brick the map claims: otherwise the subtraction
+                  // would clip nothing and the beam would see solid
+                  // lead, with nothing to say so.
+                  const BrickWallBore & bore = fsrBores[e.bore-1];
+                  const double xlo = x, xhi = x + w;
+                  const double h    = fsrTypeSpan(types[p], fsrPitchDir);
+                  const double ylo  = b.center.y() - h/2;
+                  const double yhi  = b.center.y() + h/2;
+                  // Both axes matter. In x the courses are pinned by
+                  // brickEndX while the holes follow the beam, and in y
+                  // the courses stack from the baseplate while the beam
+                  // sits boreToBase above it -- so either can drift
+                  // away from the other.
+                  if (bore.center.x() - bore.radius < xlo ||
+                      bore.center.x() + bore.radius > xhi ||
+                      bore.center.y() - bore.radius < ylo ||
+                      bore.center.y() + bore.radius > yhi) {
+                    throw cet::exception("GEOM")
+                      << "STMMaker: FrontShieldingRight bore " << e.bore
+                      << " (" << bore.axis << ") does not fit the brick named by"
+                      << " leadBoreMap {layer " << e.layer << ", course "
+                      << e.course << ", position " << e.position << "}.\n"
+                      << "The hole spans x = [" << bore.center.x() - bore.radius
+                      << ", " << bore.center.x() + bore.radius
+                      << "], y = [" << bore.center.y() - bore.radius
+                      << ", " << bore.center.y() + bore.radius << "] mm;\n"
+                      << "that brick spans x = [" << xlo << ", " << xhi
+                      << "], y = [" << ylo << ", " << yhi << "] mm.\n"
+                      << "Check stm.FrontShieldingRight.brickEndX ("
+                      << fsrBrickEndX << " mm), the course stack "
+                      << "(boreToBase " << _STM_SSCboreToBase
+                      << ", block " << fsrBlockDyForCourses
+                      << ", pitch " << fsrPitch << " mm), and this bore's own "
+                      << "offset (" << bore.offset.x() << ", " << bore.offset.y()
+                      << " mm) against the bore map.\n";
+                  }
+                  b.bores.push_back(e.bore);
+                }
+              }
+              bricks.push_back(b);
+              x += w;
+            }
+          }
+
+          _FrontShieldingRightLeadLayers.push_back(
+            BrickWall(_FrontShieldingRightBuild,
+                      CLHEP::Hep3Vector(fsrBrickEndX, 0., fsrZ),
+                      fsrCourseDir, fsrPitchDir, fsrDepthDir,
+                      bricks, fsrBores));
+          fsrLastLeadZ = fsrZ;
+          fsrLastLeadT = thick;
+          fsrZ += thick;
+
+        } else {
+          // A sheet layer: two plates split at the beam, sharing the
+          // courses' footprint. The lower one carries the bores.
+          const double top = (fsrCourse.back() + 1)*fsrPitch - fsrPitch/2;
+          const double bot = top - (fsrSheetLo + fsrSheetUp);
+
+          FrontShieldingRightSheet lower;
+          lower.material    = fsrSheetMat;
+          lower.orientation = "000";
+          lower.halfDim     = CLHEP::Hep3Vector(fsrCourseWidth/2, fsrSheetLo/2, fsrSheetT/2);
+          lower.center      = CLHEP::Hep3Vector(fsrBrickEndX - fsrCourseWidth/2,
+                                                bot + fsrSheetLo/2,
+                                                fsrZ + fsrSheetT/2);
+          for (int i = 0; i < fsrBoreN; ++i) {
+            lower.bores.push_back(i+1);
+            lower.boreRadius.push_back(fsrBores[i].radius);
+          }
+          _FrontShieldingRightSheets.push_back(lower);
+
+          FrontShieldingRightSheet upper;
+          upper.material    = fsrSheetMat;
+          upper.orientation = "000";
+          upper.halfDim     = CLHEP::Hep3Vector(fsrCourseWidth/2, fsrSheetUp/2, fsrSheetT/2);
+          upper.center      = CLHEP::Hep3Vector(fsrBrickEndX - fsrCourseWidth/2,
+                                                bot + fsrSheetLo + fsrSheetUp/2,
+                                                fsrZ + fsrSheetT/2);
+          _FrontShieldingRightSheets.push_back(upper);
+
+          fsrZ += fsrSheetT;
+        }
+      }
+
+      // The blocks the wall stands on: they span the courses' width and
+      // their undersides land on the baseplate.
+      _FrontShieldingRightBlockMaterial =
+        _config.getString("stm.FrontShieldingRight.block.material");
+      const double fsrBlockDx = _config.getDouble("stm.FrontShieldingRight.block.dx");
+      const double fsrBlockDy = _config.getDouble("stm.FrontShieldingRight.block.dy");
+      const double fsrBlockDz = _config.getDouble("stm.FrontShieldingRight.block.dz");
+      _FrontShieldingRightBlockHalfDim =
+        CLHEP::Hep3Vector(fsrBlockDx/2, fsrBlockDy/2, fsrBlockDz/2);
+
+      const int fsrBlockN = _config.getInt("stm.FrontShieldingRight.block.n");
+      const double fsrBlockY = -_STM_SSCboreToBase + fsrBlockDy/2;
+      for (int i = 0; i < fsrBlockN; ++i) {
+        _FrontShieldingRightBlockCenter.push_back(
+          CLHEP::Hep3Vector(fsrBrickEndX - fsrBlockDx/2 - i*fsrBlockDx,
+                            fsrBlockY,
+                            fsrFrontZ + fsrBlockDz/2));
+      }
+
+      // The two pipes, each on its bore, starting at the wall front.
+      const std::string fsrPipeMat = _config.getString("stm.FrontShieldingRight.pipe.material");
+      const double fsrPipeRInLaBr  = _config.getDouble("stm.FrontShieldingRight.pipe.rInLaBr");
+      const double fsrPipeRInHPGe  = _config.getDouble("stm.FrontShieldingRight.pipe.rInHPGe");
+      const double fsrPipeROutLaBr = _config.getDouble("stm.FrontShieldingRight.pipe.rOutLaBr");
+      const double fsrPipeROutHPGe = _config.getDouble("stm.FrontShieldingRight.pipe.rOutHPGe");
+      const double fsrPipeLenLaBr  = _config.getDouble("stm.FrontShieldingRight.pipe.lenLaBr");
+      const double fsrPipeLenHPGe  = _config.getDouble("stm.FrontShieldingRight.pipe.lenHPGe");
+      for (int i = 0; i < fsrBoreN; ++i) {
+        const bool laBr = (fsrBores[i].axis == "LaBr");
+        FrontShieldingRightPipe p;
+        p.material   = fsrPipeMat;
+        p.rIn        = laBr ? fsrPipeRInLaBr  : fsrPipeRInHPGe;
+        p.rOut       = laBr ? fsrPipeROutLaBr : fsrPipeROutHPGe;
+        p.halfLength = (laBr ? fsrPipeLenLaBr : fsrPipeLenHPGe)/2;
+        p.center     = CLHEP::Hep3Vector(fsrBores[i].center.x(),
+                                         fsrBores[i].center.y(),
+                                         fsrFrontZ + p.halfLength);
+        _FrontShieldingRightPipes.push_back(p);
+      }
+
+      // The copper plate, placed by the anchor corner of its outline
+      // rather than by a centre.
+      _FrontShieldingRightPlate.material =
+        _config.getString("stm.FrontShieldingRight.copperLining.material");
+      _config.getVectorDouble("stm.FrontShieldingRight.copperLining.UVerts",
+                              _FrontShieldingRightPlate.uVerts);
+      _config.getVectorDouble("stm.FrontShieldingRight.copperLining.VVerts",
+                              _FrontShieldingRightPlate.vVerts);
+      _FrontShieldingRightPlate.length =
+        _config.getDouble("stm.FrontShieldingRight.copperLining.length");
+      _FrontShieldingRightPlate.orientation =
+        _config.getString("stm.FrontShieldingRight.copperLining.orientation");
+      const double fsrCuLiningFromEnd =
+        _config.getDouble("stm.FrontShieldingRight.copperLining.originFromBrickEnd");
+      // The lining is not centred on the beam: its underside sits a
+      // stated height above the baseplate, on the same chain that
+      // fixes the bore height. The sweep runs along y and an extruded
+      // solid is centred on its placement point, so the anchor's y is
+      // the mid-plane -- bottom plus half the sweep -- not the edge.
+      const double fsrCuLiningBottomToBase =
+        _config.getDouble("stm.FrontShieldingRight.copperLining.bottomToBase");
+      const double fsrCuLiningY =
+        -_STM_SSCboreToBase + fsrCuLiningBottomToBase
+        + _FrontShieldingRightPlate.length/2;
+      _FrontShieldingRightPlate.anchor =
+        CLHEP::Hep3Vector(fsrBrickEndX - fsrCuLiningFromEnd, fsrCuLiningY, fsrZ);
+      // The plate's holes are the same bores as everything else on the
+      // beamline, so it names them by id: whatever offset has moved a
+      // bore off the collimator axis has already been applied there.
+      const int fsrCuLiningHoles = _config.getInt("stm.FrontShieldingRight.copperLining.nHoles");
+      if (fsrCuLiningHoles > fsrBoreN) {
+        throw cet::exception("GEOM")
+          << "STMMaker: stm.FrontShieldingRight.copperLining.nHoles is "
+          << fsrCuLiningHoles << " but only " << fsrBoreN << " bores are defined.\n";
+      }
+      for (int i = 1; i <= fsrCuLiningHoles; ++i) {
+        std::ostringstream key;
+        key << "stm.FrontShieldingRight.copperLining.holeRadius" << i;
+        _FrontShieldingRightPlate.bores.push_back(i);
+        _FrontShieldingRightPlate.holeRadius.push_back(_config.getDouble(key.str()));
+      }
+
+      // The section's downstream face: the lining's front, plus however
+      // much of the lining lies along the depth direction.
+      {
+        CLHEP::HepRotation liningRot(CLHEP::HepRotation::IDENTITY);
+        OrientationResolver OR;
+        OR.getRotationFromOrientation(liningRot, _FrontShieldingRightPlate.orientation);
+
+        auto range = [](std::vector<double> const & v) {
+          return v.empty() ? 0. : *std::max_element(v.begin(), v.end())
+                                - *std::min_element(v.begin(), v.end());
+        };
+        // In the outline's own frame u and v span the polygon and the
+        // sweep runs along its z.
+        const CLHEP::Hep3Vector liningDim(range(_FrontShieldingRightPlate.uVerts),
+                                          range(_FrontShieldingRightPlate.vVerts),
+                                          _FrontShieldingRightPlate.length);
+        _FrontShieldingRightBackZ =
+          fsrZ + spanAlong(liningDim, liningRot, fsrDepthDir);
+      }
+
+      // ---- Front shielding, left ----------------------------------
+      //
+      // The half beside the collimator. Nothing here is bored and no
+      // poly interleaves with a lead layer, so it is three brick
+      // groups, four sheets and a prism, each placed against the
+      // right half rather than measured on its own.
+      //
+      // Every x is a centre measured back from brickEndX and so is
+      // negative; every y is a height above the baseplate. The
+      // per-bore offsets do not enter: they move the beam, and these
+      // pieces are anchored by brickEndX and the baseplate.
+
+      _FrontShieldingLeftBuild = _config.getBool("stm.FrontShieldingLeft.build");
+
+      const std::string fslPolyMat =
+        _config.getString("stm.FrontShieldingLeft.BPmaterial");
+
+      auto fslSheet = [&](std::string const & name,
+                          double dx, double dy, double dz,
+                          double z, double bottomToBase) {
+        FrontShieldingLeftSheet s;
+        s.material = fslPolyMat;
+        s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+        s.center   = CLHEP::Hep3Vector(
+          fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft." + name + ".fromEndX"),
+          -_STM_SSCboreToBase + bottomToBase + dy/2,
+          z + dz/2);
+        return s;
+      };
+
+      // The side slab stands on the baseplate, spanning the depth of
+      // the right half's first four layers from its front face.
+      const double fslSideDx = _config.getDouble("stm.FrontShieldingLeft.sidePoly.dx");
+      const double fslSideDy = _config.getDouble("stm.FrontShieldingLeft.sidePoly.dy");
+      const double fslSideDz = _config.getDouble("stm.FrontShieldingLeft.sidePoly.dz");
+      _FrontShieldingLeftSheets.push_back(
+        fslSheet("sidePoly", fslSideDx, fslSideDy, fslSideDz, fsrFrontZ, 0.));
+
+      // The outer sheet is the layer in front of the brick block, and
+      // the block shares the plane of the right half's last lead
+      // layer, so the sheet sits one thickness ahead of that plane.
+      const double fslOuterDx = _config.getDouble("stm.FrontShieldingLeft.outerPoly.dx");
+      const double fslOuterDy = _config.getDouble("stm.FrontShieldingLeft.outerPoly.dy");
+      const double fslOuterDz = _config.getDouble("stm.FrontShieldingLeft.outerPoly.dz");
+      _FrontShieldingLeftSheets.push_back(
+        fslSheet("outerPoly", fslOuterDx, fslOuterDy, fslOuterDz,
+                 fsrLastLeadZ - fslOuterDz, 0.));
+
+      // The inner sheet and the edge sheet share a depth -- the layer
+      // behind the last lead layer -- but not a height.
+      const double fslInnerDx = _config.getDouble("stm.FrontShieldingLeft.innerPoly.dx");
+      const double fslInnerDy = _config.getDouble("stm.FrontShieldingLeft.innerPoly.dy");
+      const double fslInnerDz = _config.getDouble("stm.FrontShieldingLeft.innerPoly.dz");
+      const double fslInnerBase =
+        _config.getDouble("stm.FrontShieldingLeft.innerPoly.bottomToBase");
+      const double fslInnerZ = fsrLastLeadZ + fsrLastLeadT;
+      _FrontShieldingLeftSheets.push_back(
+        fslSheet("innerPoly", fslInnerDx, fslInnerDy, fslInnerDz,
+                 fslInnerZ, fslInnerBase));
+
+      const double fslEdgeDx = _config.getDouble("stm.FrontShieldingLeft.edgePoly.dx");
+      const double fslEdgeDy = _config.getDouble("stm.FrontShieldingLeft.edgePoly.dy");
+      const double fslEdgeDz = _config.getDouble("stm.FrontShieldingLeft.edgePoly.dz");
+      const double fslEdgeBase =
+        _config.getDouble("stm.FrontShieldingLeft.edgePoly.bottomToBase");
+      _FrontShieldingLeftSheets.push_back(
+        fslSheet("edgePoly", fslEdgeDx, fslEdgeDy, fslEdgeDz,
+                 fslInnerZ, fslEdgeBase));
+
+      // A brick group: one BrickWall, its courses butted end to end
+      // from a corner. The same expansion serves all three groups
+      // here, which differ only in where they start and which way
+      // their courses run. Orientation is per course, since these
+      // groups mix bricks lying flat with bricks stood on end.
+      auto fslBrickGroup = [&](std::vector<std::vector<int> > const & courses,
+                               std::vector<std::string> const & orientations,
+                               CLHEP::Hep3Vector const & origin,
+                               CLHEP::Hep3Vector const & courseDir,
+                               CLHEP::Hep3Vector const & pitchDir,
+                               CLHEP::Hep3Vector const & depthDir,
+                               std::string const & what) {
+        std::vector<BrickWallBrick> bricks;
+        double pitchAt = 0.;
+        for (size_t c = 0; c < courses.size(); ++c) {
+          if (courses[c].empty()) {
+            throw cet::exception("GEOM")
+              << "STMMaker: FrontShieldingLeft " << what << " course "
+              << c+1 << " is empty.\n";
+          }
+          CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
+          {
+            OrientationResolver OR;
+            OR.getRotationFromOrientation(rot, orientations[c]);
+          }
+          auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
+            if (type < 1 || type > int(_leadBrickDims.size())) {
+              throw cet::exception("GEOM")
+                << "STMMaker: FrontShieldingLeft " << what
+                << " names brick type " << type
+                << ", but stm.leadBrick.typeN defines only "
+                << _leadBrickDims.size() << ".\n";
+            }
+            return spanAlong(_leadBrickDims[type-1], rot, dir);
+          };
+
+          // How far this course steps along the pitch. A course is one
+          // brick deep, so any of its bricks gives the step -- read
+          // per course rather than once, because these groups mix
+          // brick sizes from course to course.
+          const double step = span(courses[c][0], pitchDir);
+
+          double along = 0.;
+          for (int t : courses[c]) {
+            const double w = span(t, courseDir);
+            BrickWallBrick b;
+            b.type        = t;
+            b.orientation = orientations[c];
+            b.center      = origin
+                          + courseDir*(along + w/2)
+                          + pitchDir *(pitchAt + step/2)
+                          + depthDir *(span(t, depthDir)/2);
+            bricks.push_back(b);
+            along += w;
+          }
+          pitchAt += step;
+        }
+        return BrickWall(_FrontShieldingLeftBuild, origin,
+                         courseDir, pitchDir, depthDir,
+                         bricks, std::vector<BrickWallBore>());
+      };
+
+      // The nine-brick block. Its columns run up y, so a "course"
+      // here is a column: the course direction is +y and the pitch
+      // steps along -x, away from the right half. It stands on the
+      // baseplate.
+      //
+      // Its +x face is flush with the side slab's +x face, which is the
+      // right half's -x course edge, but going through the slab is
+      // what keeps them together if the slab is ever moved or
+      // retuned. The slab stands alongside the block in z, spanning
+      // the right half's first four layers.
+      const double fslBlockEndX =
+        fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft.sidePoly.fromEndX")
+        + fslSideDx/2;
+      {
+        std::vector<std::vector<int> > columns;
+        std::vector<std::string>       orientations;
+        const int n = _config.getInt("stm.FrontShieldingLeft.blockColumnN");
+        for (int i = 1; i <= n; ++i) {
+          std::ostringstream key, okey;
+          key  << "stm.FrontShieldingLeft.blockColumn" << i;
+          okey << "stm.FrontShieldingLeft.blockColumn" << i << "Orientation";
+          std::vector<int> types;
+          _config.getVectorInt(key.str(), types);
+          columns.push_back(types);
+          orientations.push_back(_config.getString(okey.str()));
+        }
+        _FrontShieldingLeftBrickGroups.push_back(
+          fslBrickGroup(columns, orientations,
+                        CLHEP::Hep3Vector(fslBlockEndX, -_STM_SSCboreToBase,
+                                          fsrLastLeadZ),
+                        CLHEP::Hep3Vector(0., 1., 0.),   // a column runs up
+                        CLHEP::Hep3Vector(-1., 0., 0.),  // columns step -x
+                        CLHEP::Hep3Vector(0., 0., 1.),
+                        "outer block"));
+      }
+
+      // The two bricks beside the edge sheet. They are level with it
+      // rather than stacked on it, so they take its height, and they
+      // sit one layer along +z from it.
+      {
+        std::vector<int> types;
+        _config.getVectorInt("stm.FrontShieldingLeft.edgeCourse", types);
+        const std::string orient =
+          _config.getString("stm.FrontShieldingLeft.edgeCourseOrientation");
+        // Flush with the sheet's +x end, running -x, the same way the
+        // block and the right half's courses run.
+        const double xStart =
+          fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft.edgePoly.fromEndX")
+          + fslEdgeDx/2;
+        _FrontShieldingLeftBrickGroups.push_back(
+          fslBrickGroup(std::vector<std::vector<int> >(1, types),
+                        std::vector<std::string>(1, orient),
+                        CLHEP::Hep3Vector(xStart,
+                                          -_STM_SSCboreToBase + fslEdgeBase,
+                                          fslInnerZ + fslEdgeDz),
+                        CLHEP::Hep3Vector(-1., 0., 0.),
+                        CLHEP::Hep3Vector(0., 1., 0.),
+                        CLHEP::Hep3Vector(0., 0., 1.),   // +z of the sheet
+                        "edge course"));
+      }
+
+      // The grid behind the inner sheet: courses running -x from the
+      // sheet's +x end, stacking up from the baseplate.
+      {
+        std::vector<std::vector<int> > courses;
+        std::vector<std::string>       orientations;
+        const int n = _config.getInt("stm.FrontShieldingLeft.innerGridCourseN");
+        const std::string orient =
+          _config.getString("stm.FrontShieldingLeft.innerGridOrientation");
+        for (int i = 1; i <= n; ++i) {
+          std::ostringstream key;
+          key << "stm.FrontShieldingLeft.innerGridCourse" << i;
+          std::vector<int> types;
+          _config.getVectorInt(key.str(), types);
+          courses.push_back(types);
+          orientations.push_back(orient);
+        }
+        const double xStart =
+          fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft.innerPoly.fromEndX")
+          + fslInnerDx/2;
+        _FrontShieldingLeftBrickGroups.push_back(
+          fslBrickGroup(courses, orientations,
+                        CLHEP::Hep3Vector(xStart,
+                                          -_STM_SSCboreToBase + fslInnerBase,
+                                          fslInnerZ + fslInnerDz),
+                        CLHEP::Hep3Vector(-1., 0., 0.),
+                        CLHEP::Hep3Vector(0., 1., 0.),
+                        CLHEP::Hep3Vector(0., 0., 1.),   // +z of the sheet
+                        "inner grid"));
+      }
+
+      // The prism, placed by its right angle rather than by a centre.
+      _FrontShieldingLeftPrism.material =
+        _config.getString("stm.FrontShieldingLeft.triangle.material");
+      _config.getVectorDouble("stm.FrontShieldingLeft.triangle.UVerts",
+                              _FrontShieldingLeftPrism.uVerts);
+      _config.getVectorDouble("stm.FrontShieldingLeft.triangle.VVerts",
+                              _FrontShieldingLeftPrism.vVerts);
+      _FrontShieldingLeftPrism.length =
+        _config.getDouble("stm.FrontShieldingLeft.triangle.length");
+      _FrontShieldingLeftPrism.orientation =
+        _config.getString("stm.FrontShieldingLeft.triangle.orientation");
+      // The right angle butts the inner sheet's +x and -z faces, and
+      // the prism's top is level with that sheet's top. An extruded
+      // solid is centred on its placement point, so the anchor's y is
+      // half a sweep below that top rather than at it.
+      {
+        const double innerX =
+          fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft.innerPoly.fromEndX");
+        const double innerTop =
+          -_STM_SSCboreToBase + fslInnerBase + fslInnerDy;
+        _FrontShieldingLeftPrism.anchor =
+          CLHEP::Hep3Vector(innerX + fslInnerDx/2,
+                            innerTop - _FrontShieldingLeftPrism.length/2,
+                            fslInnerZ);
+      }
+    }
+    else{
+      _FrontShieldingBuild   = _config.getBool(  "stm.FrontShielding.build");
+      _FrontSHeightofRoom    = _config.getDouble("stm.FrontShielding.HeightofRoom");
+      _FrontStungstenlength  = _config.getDouble("stm.FrontShielding.tungstenlength");
+      _FrontStungstendepth   = _config.getDouble("stm.FrontShielding.tungstendepth");
+      _FrontSleaddepth1      = _config.getDouble("stm.FrontShielding.leaddepth1");
+      _FrontSleaddepth2      = _config.getDouble("stm.FrontShielding.leaddepth2");
+      _FrontSaluminumdepth   = _config.getDouble("stm.FrontShielding.aluminumdepth");
+      _FrontScopperdepth     = _config.getDouble("stm.FrontShielding.copperdepth");
+      _FrontSBPdepth         = _config.getDouble("stm.FrontShielding.BPdepth");
+      _FrontSfPb_lengthL     = _config.getDouble("stm.FrontShielding.fPb_lengthL");
+      _FrontSfPb_lengthR     = _config.getDouble("stm.FrontShielding.fPb_lengthR");
+      _FrontSGapForTop       = _config.getDouble("stm.FrontShielding.GapForTop");
+      _FrontSLeakForSSC      = _config.getDouble("stm.FrontShielding.LeakForSSC");
+      _FrontSCopperL         = _config.getDouble("stm.FrontShielding.CopperL");
+      _FrontS_H              = _config.getDouble("stm.FrontShielding.FrontS_H");
+      _FrontSHole_r          = _config.getDouble("stm.FrontShielding.FrontSHole_r");
+    }
 
 
     _HPGeBuild                = _config.getBool("stm.HPGe.build");

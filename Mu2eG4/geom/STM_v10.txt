@@ -39,6 +39,19 @@ double stm.leadBrick.2x4x16.dz =  50.800;  //  2 in
 string stm.leadBrick.material  = "G4_Pb";
 double stm.leadBrick.wear      = 0.0;
 
+// Brick types, numbered so that a course anywhere in the shield house
+// can be written as a list of types. A type is a SHAPE only:
+//
+//   - it carries no orientation, how it is turned is recorded by the
+//     section that places it;
+//   - it carries no bores.
+//
+// A new size is therefore a new type and leaves existing course lists
+// untouched.
+int    stm.leadBrick.typeN = 2;
+string stm.leadBrick.type1 = "2x4x16";
+string stm.leadBrick.type2 = "2x4x8";
+
 
 // ---- Spot-Size Collimator ----------------------------------------
 //
@@ -93,6 +106,11 @@ double stm.STM_SSC.r_HPGe_b =  6.985;  // 0.275 in, downstream
 double stm.STM_SSC.ZGap            = 8.70;
 double stm.STM_SSC.ZGapBack        = 4.35;
 
+// Height of the SSC bore axis above the baseplate. Five independent
+// stacks through the shielding agree on this to within 0.5 mm; 236.000
+// is the value two all-imperial paths give exactly.
+double stm.STM_SSC.boreToBase      = 236.000;
+
 
 // ---- Steel support cradle ----------------------------------------
 //
@@ -138,11 +156,6 @@ double stm.SSCSupport.side_H      = 273.940;  // closes the stack; CAD 273.187
 double stm.SSCSupport.base_T      =  19.050;  // 0.750 in
 double stm.SSCSupport.bottom_T    =  12.700;  // 0.500 in
 double stm.SSCSupport.top_T       =  19.050;  // 0.750 in
-
-// Height of the SSC bore axis above the baseplate. Five independent
-// stacks through the shielding agree on this to within 0.5 mm; 236.000
-// is the value two all-imperial paths give exactly.
-double stm.SSCSupport.boreToBase  = 236.000;
 
 // ---- SSC front shield ---------------------------------------------
 //
@@ -267,6 +280,290 @@ double stm.SSCFrontShield.poly2.dx =  55.880;  // 2.2 in
 double stm.SSCFrontShield.poly2.dy =  50.800;  // 2 in
 double stm.SSCFrontShield.poly2.dz = 152.400;  // 6 in
 vector<double> stm.SSCFrontShield.poly2.center = { -40.640, 0.000, -200.133};
+
+// ---- Front shielding, right ----------------------------------------
+//
+// The section behind the SSC: three lead brick layers sandwiched with
+// two borated poly layers, on top of four aluminum blocks, plus
+// a copper layer and two copper pipes.
+//
+// The section is fixed by three constraints along with part dimensions.
+// The pieces are stacked together without gaps. The derivation of the full
+// list of placements is in the STMMaker.cc.
+//
+//   x  brickEndX pins the +x end of every course. The values in the CAD
+//      scatters around 285.7 mm, and an easy-to-convert value of 11.25 in
+//      is used here. The bored brick's hole locations are slightly adjusted
+//      to align with the SSC bores.
+//   y  the bore is stm.STM_SSC.boreToBase above the baseplate and
+//      courses run on a 4 in pitch from it; the aluminum blocks'
+//      undersides then land on the baseplate exactly.
+//   z  wallToCradleGap sets the wall front face behind the cradle
+//      back, and the five layers stack from there with no gaps. Their
+//      total is 8 in, which is exactly the aluminum blocks' depth.
+bool   stm.FrontShieldingRight.build = true;
+
+double stm.FrontShieldingRight.brickEndX       = 285.750;  // 11.25 in
+double stm.FrontShieldingRight.wallToCradleGap =   1.200;  // measured, not round
+
+// Courses run on a 4 in pitch. Every brick here lies in the leadBrick
+// native frame -- 16 or 8 in along x, 4 in along y, 2 in along z --
+// so no rotation is needed.
+double stm.FrontShieldingRight.coursePitch      = 101.600;  // 4 in
+string stm.FrontShieldingRight.brickOrientation = "000";
+
+// Courses present, in multiples of coursePitch from the bore. The 0
+// course is the one the beam passes through.
+int stm.FrontShieldingRight.courseN =  4;
+int stm.FrontShieldingRight.course1 = -1;
+int stm.FrontShieldingRight.course2 =  0;
+int stm.FrontShieldingRight.course3 =  1;
+int stm.FrontShieldingRight.course4 =  2;
+
+// Layer sequence in z from the wall front face: a 2 in lead course,
+// a 1 in borated poly plate, and so on.
+int    stm.FrontShieldingRight.layerN = 5;
+string stm.FrontShieldingRight.layer1 = "Pb";
+string stm.FrontShieldingRight.layer2 = "BP";
+string stm.FrontShieldingRight.layer3 = "Pb";
+string stm.FrontShieldingRight.layer4 = "BP";
+string stm.FrontShieldingRight.layer5 = "Pb";
+
+// The lead layers. Each course is a list of stm.leadBrick types read
+// from -x to +x, butted end to end and flush at brickEndX. Layer 2 is
+// layer 1 with every course reversed, which is what breaks the joints
+// between layers; layer 3 repeats layer 1.
+vector<int> stm.FrontShieldingRight.leadLayer1Course1 = {1,2};
+vector<int> stm.FrontShieldingRight.leadLayer1Course2 = {2,1};
+vector<int> stm.FrontShieldingRight.leadLayer1Course3 = {1,2};
+vector<int> stm.FrontShieldingRight.leadLayer1Course4 = {2,1};
+
+vector<int> stm.FrontShieldingRight.leadLayer2Course1 = {2,1};
+vector<int> stm.FrontShieldingRight.leadLayer2Course2 = {1,2};
+vector<int> stm.FrontShieldingRight.leadLayer2Course3 = {2,1};
+vector<int> stm.FrontShieldingRight.leadLayer2Course4 = {1,2};
+
+vector<int> stm.FrontShieldingRight.leadLayer3Course1 = {1,2};
+vector<int> stm.FrontShieldingRight.leadLayer3Course2 = {2,1};
+vector<int> stm.FrontShieldingRight.leadLayer3Course3 = {1,2};
+vector<int> stm.FrontShieldingRight.leadLayer3Course4 = {2,1};
+
+// The bores. Each is a hole pinned to a beam axis, defined once and
+// referred to by number; its x comes from stm.STM_SSC.offset_Spot, so
+// it follows the collimator rather than being written out here.
+int    stm.FrontShieldingRight.boreN = 2;
+string stm.FrontShieldingRight.bore1Axis = "LaBr";   // x = +offset_Spot
+string stm.FrontShieldingRight.bore2Axis = "HPGe";   // x = -offset_Spot
+double stm.FrontShieldingRight.bore1R = 25.400;      // 1 in
+double stm.FrontShieldingRight.bore2R = 25.400;
+
+// While the bores are supposed to be coaxial with the SSC, offsets can
+// be applied only to the bore bore centers if needed.
+double stm.FrontShieldingRight.bore1OffsetX = 0.000;
+double stm.FrontShieldingRight.bore1OffsetY = 0.000;
+double stm.FrontShieldingRight.bore2OffsetX = 0.000;
+double stm.FrontShieldingRight.bore2OffsetY = 0.000;
+
+// Which bores pass through which brick: {layer, course, position in
+// that course, bore}. A brick absent from this list is solid, and one
+// appearing twice takes two holes -- so a future brick catching only
+// a single bore is one entry here, not a new brick type.
+//
+// The bore map is written out rather than worked out from the geometry. 
+// This is implemented as a cross-check method so constructor does not
+// quietly bore the lead bricks at unexpected locations.
+int stm.FrontShieldingRight.leadBoreMapN = 6;
+vector<int> stm.FrontShieldingRight.leadBoreMap1 = {1, 2, 2, 1};
+vector<int> stm.FrontShieldingRight.leadBoreMap2 = {1, 2, 2, 2};
+vector<int> stm.FrontShieldingRight.leadBoreMap3 = {2, 2, 1, 1};
+vector<int> stm.FrontShieldingRight.leadBoreMap4 = {2, 2, 1, 2};
+vector<int> stm.FrontShieldingRight.leadBoreMap5 = {3, 2, 2, 1};
+vector<int> stm.FrontShieldingRight.leadBoreMap6 = {3, 2, 2, 2};
+
+// Borated poly
+// Each layer is two plates sharing the lead stack's footprint, split
+// 16 in (in y) overall; the lower one is bored twice on the beam axes.
+string stm.FrontShieldingRight.BPlayer.material  = "Polyethylene092B050d095";
+double stm.FrontShieldingRight.BPlayer.thickness =  25.400;  // 1 in
+double stm.FrontShieldingRight.BPlayer.dyLower   = 187.482;
+double stm.FrontShieldingRight.BPlayer.dyUpper   = 218.918;
+// The bores are nominally coaxial with the SSC, 
+// FrontShieldingRight.bore<1/2>Offset<X/Y> are applied to the bore centers.
+
+// Aluminum support blocks
+// Four 6 in blocks spanning the same 24 in as the courses, flush at
+// both ends, 8 in deep to match the layer stack.
+string stm.FrontShieldingRight.block.material = "G4_Al";
+double stm.FrontShieldingRight.block.dx =  152.400;  // 6 in
+double stm.FrontShieldingRight.block.dy =   83.600;  // 
+double stm.FrontShieldingRight.block.dz =  203.200;  // 8 in
+int    stm.FrontShieldingRight.block.n  =    4;
+
+// The two collimator pipes, on the beam axes. They start at the wall
+// front face; the LaBr one continues downstream past this section.
+string stm.FrontShieldingRight.pipe.material = "G4_Cu";
+double stm.FrontShieldingRight.pipe.rInLaBr  =  19.050;  // 0.75 in
+double stm.FrontShieldingRight.pipe.rInHPGe  =  19.050;  // 0.75 in
+double stm.FrontShieldingRight.pipe.rOutLaBr =  25.400;  // 1.0 in
+double stm.FrontShieldingRight.pipe.rOutHPGe =  25.400;  // 1.0 in
+double stm.FrontShieldingRight.pipe.lenLaBr  = 489.100;
+double stm.FrontShieldingRight.pipe.lenHPGe  = 217.000;
+// Nominally coaxial with the SSC, but offsets
+// FrontShieldingRight.bore<1/2>Offset<X/Y> are applied to the bore 
+// centers for possible offsets.
+
+// Copper layer: a plate of trapezoid cross section swept along y
+// and bored twice on the beam axes. Outline in the
+// ExtShieldDownstream form -- U and V are the cap polygon.
+string stm.FrontShieldingRight.copperLining.material = "G4_Cu";
+// The cross-section is a trapezoid: 316.0 along its long side, 12.7
+// high, and the short side one height shorter at 303.3. The outline
+// sits in the third quadrant so that its local origin is the +u end
+// of the long side, which is all the placement needs -- that corner
+// aligns with brickEndX - 5 in = 158.750.
+vector<double> stm.FrontShieldingRight.copperLining.UVerts = {0.0,   0.0, -316.0, -303.3};
+vector<double> stm.FrontShieldingRight.copperLining.VVerts = {0.0, -12.7,  -12.7,    0.0};
+double stm.FrontShieldingRight.copperLining.length      = 137.700;  // 5.421 in, along y
+string stm.FrontShieldingRight.copperLining.orientation = "300";
+double stm.FrontShieldingRight.copperLining.originFromBrickEnd = 127.000;  // 5 in
+
+// The lining is NOT centred on the beam. Its underside sits 6.5 in
+// above the baseplate -- the same chain that gives the bore height
+// through F10256933/F10256932/F10256945 (71.120 + 165.100 = 236.220)
+// -- so its height above the baseplate is stated here and the
+// placement follows from it rather than from y = 0.
+double stm.FrontShieldingRight.copperLining.bottomToBase = 165.100;  // 6.5 in
+
+// The two holes are the beam axes again, so they are not written out
+// here: they follow stm.STM_SSC.offset_Spot with the same
+// bore<n>Offset<X/Y> corrections as the lead bricks.
+int stm.FrontShieldingRight.copperLining.nHoles = 2;
+double stm.FrontShieldingRight.copperLining.holeRadius1 = 25.400; // + offset LaBr side
+double stm.FrontShieldingRight.copperLining.holeRadius2 = 25.400; // - offset HPGe side
+
+
+// ---- Front shielding, left -----------------------------------------
+//
+// The half beside the collimator section: 22 pieces in five depths.
+// It stands on the baseplate rather than on the aluminum blocks the
+// right half sits on, and everything is keyed to that half:
+//
+//   x  measured back from FrontShieldingRight.brickEndX. The brick
+//      block abuts the right half's -x course edge.
+//   y  the brick block stands on the baseplate and rises 16 in.
+//   z  the second layer (lead brick) shares the plane of the right 
+//      half's last lead layer; the poly sheets and the bricks behind 
+//      them stack on downstream of it.
+bool   stm.FrontShieldingLeft.build = true;
+
+// All the poly here is the same borated grade as the right half's.
+string stm.FrontShieldingLeft.BPmaterial = "Polyethylene092B050d095";
+
+// Each sheet gives its CENTRE as fromEndX, measured from
+// stm.FrontShieldingRight.brickEndX -- the same reference the brick
+// block is flush with. The offsets run -x into this half and so are
+// negative. The sheets are not all oriented alike, so dx is a
+// thickness on some and a width on others; each says which below.
+
+// The standalone slab against the right half's -x face, spanning the
+// depth of its first four layers. This one stands on edge: its 1 in is
+// the thickness, in x, and its 490 mm is the same as the total height
+// of front shielding right. It hangs off the far side of the 24 in of
+// courses, so its centre is that span plus half that thickness.
+double stm.FrontShieldingLeft.sidePoly.fromEndX = -622.300;  // -(24 + 0.5) in
+double stm.FrontShieldingLeft.sidePoly.dx =  25.400;  // 1 in, THICKNESS
+double stm.FrontShieldingLeft.sidePoly.dy = 490.000;
+double stm.FrontShieldingLeft.sidePoly.dz = 152.200;  // 6 in
+
+// The outer sheet, one layer ahead of the brick block. This one lies
+// in the xy plane, so its 1 in is in z and dx is a width. Its +x face
+// stands 25 in back from the reference and the centre follows.
+double stm.FrontShieldingLeft.outerPoly.fromEndX = -875.600;  // -25 in - dx/2
+double stm.FrontShieldingLeft.outerPoly.dx = 481.200;  // as measured, WIDTH
+double stm.FrontShieldingLeft.outerPoly.dy = 406.200;  // 16 in
+double stm.FrontShieldingLeft.outerPoly.dz =  25.400;  //  1 in, thickness
+
+// The brick block: three columns in x, each 16 in tall, sharing the
+// plane of the right half's last lead layer. The outer two are stacks
+// of four 4 in courses; the middle is a single 16 in brick on end, so
+// the pitch is mixed and the columns are given separately. Widths run
+// 8 in, 4 in, 8 in for 20 in overall, the +x face flush with the
+// right half and the bottom on the baseplate.
+//
+// A column is a list of stm.leadBrick types read from -y to +y, butted
+// end to end and flush on the baseplate, in the same form the right
+// half writes its courses.
+//
+// Orientation is per column rather than shared, because the columns do
+// not agree: the outer two lie in the leadBrick native frame, 8 in
+// along x and 4 in along y, while the middle brick is stood on end so
+// its 16 in runs up y.
+int stm.FrontShieldingLeft.blockColumnN = 3;
+vector<int> stm.FrontShieldingLeft.blockColumn1 = {2,2,2,2};  // four 2x4x8 stacked
+vector<int> stm.FrontShieldingLeft.blockColumn2 = {1};        // one 2x4x16 on end
+vector<int> stm.FrontShieldingLeft.blockColumn3 = {2,2,2,2};  // four 2x4x8 stacked
+
+string stm.FrontShieldingLeft.blockColumn1Orientation = "000";
+string stm.FrontShieldingLeft.blockColumn2Orientation = "001";
+string stm.FrontShieldingLeft.blockColumn3Orientation = "000";
+
+// The inner sheet and the edge sheet beside it. Both are 16 in wide;
+// they are given apart because they sit at quite different heights, so
+// each carries its own bottomToBase.
+//
+// The inner sheet reaches the floor like the rest of this half.
+double stm.FrontShieldingLeft.innerPoly.fromEndX     = -736.600;  // -21-8=-29 in
+double stm.FrontShieldingLeft.innerPoly.bottomToBase =    0.000;
+double stm.FrontShieldingLeft.innerPoly.dx = 406.400;  // 16 in
+double stm.FrontShieldingLeft.innerPoly.dy = 302.800;  // as measured, up to 304.8 mm / 12 in
+double stm.FrontShieldingLeft.innerPoly.dz =  25.400;  //  1 in
+
+// The edge sheet does not: it rides high on the aluminum top wall,
+// clear of the inner sheet below it.
+double stm.FrontShieldingLeft.edgePoly.fromEndX     = -787.400;  // -23-8=-31 in
+double stm.FrontShieldingLeft.edgePoly.bottomToBase =  323.850;  // 12.75 in
+double stm.FrontShieldingLeft.edgePoly.dx = 406.400;  // 16 in
+double stm.FrontShieldingLeft.edgePoly.dy = 101.600;  //  4 in
+double stm.FrontShieldingLeft.edgePoly.dz =  25.400;  //  1 in
+
+// The two bricks beside the edge sheet: one course of stm.leadBrick
+// types read from -x to +x, in the same form the block columns and the
+// right half's courses use. They are level with the edge sheet rather
+// than stacked on it, so they take its bottomToBase; STMMaker works
+// out where the course starts.
+vector<int> stm.FrontShieldingLeft.edgeCourse = {2,2};
+string stm.FrontShieldingLeft.edgeCourseOrientation = "000";
+
+// Behind the inner sheet, a grid sharing its x extent: three courses
+// of two 8 in bricks, read -x to +x and stacked -y to +y on a 4 in
+// pitch. Written as courses.
+int stm.FrontShieldingLeft.innerGridCourseN = 3;
+vector<int> stm.FrontShieldingLeft.innerGridCourse1 = {2,2};
+vector<int> stm.FrontShieldingLeft.innerGridCourse2 = {2,2};
+vector<int> stm.FrontShieldingLeft.innerGridCourse3 = {2,2};
+string stm.FrontShieldingLeft.innerGridOrientation = "000";
+
+// The lead triangle: two perpendicular 3 in sides swept 6 in along y.
+//
+// Placement is by ANCHOR rather than by centre, the same way the right
+// half's copper lining is placed. The outline is drawn so that under
+// orientation "300" the prism's local origin is its RIGHT ANGLE, the
+// corner the two legs meet at, and STMMaker puts that point at:
+//
+//   x  the inner sheet's +x face,  innerPoly.fromEndX + dx/2
+//   z  the inner sheet's -z face, which the right angle butts against
+//   y  its top is level with the inner sheet's top. The extrusion is
+//      centred on its origin, so the anchor sits HALF a sweep length
+//      below that top.
+//
+// Its 3 in of z then reaches across the inner sheet and the 2x3 grid
+// of bricks together, and the 6 in sweep is centred on the anchor.
+string stm.FrontShieldingLeft.triangle.material = "G4_Pb";
+vector<double> stm.FrontShieldingLeft.triangle.UVerts = {0.0, 76.2,   0.0};
+vector<double> stm.FrontShieldingLeft.triangle.VVerts = {0.0,  0.0, -76.2};
+double stm.FrontShieldingLeft.triangle.length      = 152.400;  // 6 in
+string stm.FrontShieldingLeft.triangle.orientation = "300";
+
 
 // This tells emacs to view this file in c++ mode
 // Local Variables:

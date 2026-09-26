@@ -19,7 +19,10 @@
 #include "Offline/STMGeom/inc/STM_SSC.hh"
 #include "Offline/STMGeom/inc/SSCSupport.hh"
 #include "Offline/STMGeom/inc/LeadBrick.hh"
+#include "Offline/STMGeom/inc/BrickWall.hh"
 #include "Offline/STMGeom/inc/SSCFrontShield.hh"
+#include "Offline/STMGeom/inc/FrontShieldingRight.hh"
+#include "Offline/STMGeom/inc/FrontShieldingLeft.hh"
 #include "Offline/STMGeom/inc/HPGeDetector.hh"
 #include "Offline/STMGeom/inc/LaBrDetector.hh"
 #include "Offline/STMGeom/inc/FrontShielding.hh"
@@ -65,6 +68,8 @@ namespace mu2e {
     // The standard lead bricks, shared by every structure that stacks them.
     LeadBrick        const * getLeadBrickPtr()               const { return _pLeadBrickParams.get(); }
     SSCFrontShield   const * getSSCFrontShieldPtr()          const { return _pSSCFrontShieldParams.get(); }
+    FrontShieldingRight const * getFrontShieldingRightPtr()  const { return _pFrontShieldingRightParams.get(); }
+    FrontShieldingLeft  const * getFrontShieldingLeftPtr()   const { return _pFrontShieldingLeftParams.get(); }
 
     HPGeDetector     const * getHPGeDetectorPtr()            const { return _pSTMHPGeDetectorParams.get(); }
     LaBrDetector     const * getLaBrDetectorPtr()            const { return _pSTMLaBrDetectorParams.get(); }
@@ -109,6 +114,8 @@ namespace mu2e {
     std::unique_ptr<SSCSupport>       _pSSCSupportParams;
     std::unique_ptr<LeadBrick>        _pLeadBrickParams;
     std::unique_ptr<SSCFrontShield>   _pSSCFrontShieldParams;
+    std::unique_ptr<FrontShieldingRight> _pFrontShieldingRightParams;
+    std::unique_ptr<FrontShieldingLeft>  _pFrontShieldingLeftParams;
 
     std::unique_ptr<HPGeDetector>     _pSTMHPGeDetectorParams;
     std::unique_ptr<LaBrDetector>     _pSTMLaBrDetectorParams;

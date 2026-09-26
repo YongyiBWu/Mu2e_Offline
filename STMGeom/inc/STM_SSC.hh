@@ -48,7 +48,8 @@ namespace mu2e {
       _r_LaBr_f(0.),
       _r_HPGe_f(0.),
       _r_LaBr_b(0.),
-      _r_HPGe_b(0.)
+      _r_HPGe_b(0.),
+      _boreToBase(0.)
     {
     }
 
@@ -70,6 +71,7 @@ namespace mu2e {
                  double W_width, double W_height, double Wdepth_f, double Wdepth_b,
                  double r_LaBr_f, double r_HPGe_f, double r_LaBr_b, double r_HPGe_b,
                  double offset_Spot, double leak, double FrontToWall, double ZGap, double ZGapBack,
+                 double boreToBase,
                  CLHEP::Hep3Vector const & originInMu2e = CLHEP::Hep3Vector(),
                  CLHEP::HepRotation const & rotation = CLHEP::HepRotation(),
                  std::string const & material = ""
@@ -97,7 +99,8 @@ namespace mu2e {
       _r_LaBr_f(r_LaBr_f),
       _r_HPGe_f(r_HPGe_f),
       _r_LaBr_b(r_LaBr_b),
-      _r_HPGe_b(r_HPGe_b)
+      _r_HPGe_b(r_HPGe_b),
+      _boreToBase(boreToBase)
     {
       // W_width is stored as _W_middle with both wings zero, so the inherited
       // W_length() below returns the full width for either description and
@@ -133,6 +136,11 @@ namespace mu2e {
     double r_HPGe_f()          const {return _r_HPGe_f;}
     double r_LaBr_b()          const {return _r_LaBr_b;}
     double r_HPGe_b()          const {return _r_HPGe_b;}
+
+    // Height of the bore axis above the baseplate. Every hand-stacked
+    // piece downstream measures its own height up from that baseplate,
+    // so this is the datum for the whole shield house.
+    double boreToBase()        const {return _boreToBase;}
 
 
     //double zBegin()          const { return _originInMu2e.z() - zTabletopHalfLength(); }
@@ -173,6 +181,7 @@ namespace mu2e {
     double _r_HPGe_f;
     double _r_LaBr_b;
     double _r_HPGe_b;
+    double _boreToBase;
   };
 
 }

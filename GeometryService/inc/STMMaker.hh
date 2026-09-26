@@ -12,6 +12,12 @@
 
 #include "CLHEP/Vector/ThreeVector.h"
 
+// Held by value below while the hand-stacked sections are assembled,
+// so these need the definitions rather than a forward declaration.
+#include "Offline/STMGeom/inc/BrickWall.hh"
+#include "Offline/STMGeom/inc/FrontShieldingRight.hh"
+#include "Offline/STMGeom/inc/FrontShieldingLeft.hh"
+
 namespace mu2e {
 
   class STM;
@@ -52,8 +58,10 @@ namespace mu2e {
     bool         _handstacked;
 
     // The standard lead bricks, shared by every structure that stacks them
-    CLHEP::Hep3Vector _leadBrick2x4x8Dim;
-    CLHEP::Hep3Vector _leadBrick2x4x16Dim;
+    // Numbered by type, so a new size is a new entry rather than a new
+    // member and a change to every caller.
+    std::vector<std::string>       _leadBrickNames;
+    std::vector<CLHEP::Hep3Vector> _leadBrickDims;
     double      _leadBrickWear;
     std::string _leadBrickMaterial;
 
@@ -265,7 +273,7 @@ namespace mu2e {
     double      _SSCSupportplate_base_T;
     double      _SSCSupportbottom_T;
     double      _SSCSupporttop_T;
-    double      _SSCSupportboreToBase;
+    double      _STM_SSCboreToBase;
     std::string _SSCSupportMaterial;
 
     // SSC front shield: the brick wall, the shelf and two poly blocks.
@@ -287,6 +295,29 @@ namespace mu2e {
     std::string _SSCFrontShieldPoly2Material;
     CLHEP::Hep3Vector _SSCFrontShieldPoly2Dim;
     CLHEP::Hep3Vector _SSCFrontShieldPoly2Center;
+
+    // Front shielding, right. The lead courses and the poly sheets are
+    // expanded from the config's type lists in parseConfig, so what is
+    // held here is already the finished placement.
+    bool        _FrontShieldingRightBuild;
+    std::vector<BrickWall>                _FrontShieldingRightLeadLayers;
+    std::vector<FrontShieldingRightSheet> _FrontShieldingRightSheets;
+    // The four blocks are identical, so their material and size are
+    // shared and only their centres vary.
+    std::string _FrontShieldingRightBlockMaterial;
+    CLHEP::Hep3Vector _FrontShieldingRightBlockHalfDim;
+    std::vector<CLHEP::Hep3Vector>        _FrontShieldingRightBlockCenter;
+    std::vector<FrontShieldingRightPipe>  _FrontShieldingRightPipes;
+    FrontShieldingRightPlate              _FrontShieldingRightPlate;
+    double      _FrontShieldingRightBackZ;
+
+    // Front shielding, left. Nothing here is bored and nothing
+    // interleaves, so it is three brick groups, four sheets and the
+    // prism, all keyed off the right half.
+    bool        _FrontShieldingLeftBuild;
+    std::vector<FrontShieldingLeftSheet>  _FrontShieldingLeftSheets;
+    std::vector<BrickWall>                _FrontShieldingLeftBrickGroups;
+    FrontShieldingLeftPrism               _FrontShieldingLeftPrism;
 
     bool    _FrontShieldingBuild;
     double  _FrontSHeightofRoom;

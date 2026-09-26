@@ -41,7 +41,6 @@ namespace mu2e {
       _rotation(rotation),
       _depth(0.), _side_T(0.), _side_H(0.),
       _plate_base_T(0.), _bottom_T(0.), _top_T(0.),
-      _boreToBase(0.),
       _material("")
     {
     }
@@ -56,11 +55,11 @@ namespace mu2e {
     //
     // Only the thicknesses and the side-plate height are given. Every width
     // and offset is derived from the SSC block and its clearance, and
-    // boreToBase fixes where the whole cradle sits: see constructSTM.cc.
+    // STM_SSC::boreToBase fixes where the whole cradle sits: see
+    // constructSTM.cc.
     SSCSupport(bool build,
                  double depth, double side_T, double side_H,
                  double base_T, double bottom_T, double top_T,
-                 double boreToBase,
                  std::string const & material,
                  CLHEP::Hep3Vector const & originInMu2e = CLHEP::Hep3Vector(),
                  CLHEP::HepRotation const & rotation = CLHEP::HepRotation()
@@ -78,7 +77,6 @@ namespace mu2e {
       _rotation(rotation),
       _depth(depth), _side_T(side_T), _side_H(side_H),
       _plate_base_T(base_T), _bottom_T(bottom_T), _top_T(top_T),
-      _boreToBase(boreToBase),
       _material(material)
     {
     }
@@ -92,7 +90,6 @@ namespace mu2e {
     double plate_base_T() const {return _plate_base_T;}
     double bottom_T()    const {return _bottom_T;}
     double top_T()       const {return _top_T;}
-    double boreToBase()  const {return _boreToBase;}
     std::string const & material() const {return _material;}
 
     double table_L()   const {return _table_L;}
@@ -166,7 +163,6 @@ namespace mu2e {
     double _plate_base_T;
     double _bottom_T;
     double _top_T;
-    double _boreToBase;
     std::string _material;
   };
 
