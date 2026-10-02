@@ -623,6 +623,16 @@ namespace mu2e {
    ////////////////////////////////////////////////////////////////
    //STM Bottom Shielding
 
+    if (_handstacked) {
+      // The updated floor: the baseplate plus five layers worked upward
+      // from it, already placed in parseConfig.
+          stm._pBottomWallParams = std::unique_ptr<BottomWall>
+          (new BottomWall(_BottomWallBuild,
+                          _BottomWallPlate,
+                          _BottomWallLeadLayers,
+                          _BottomWallPrisms));
+    } else {
+
       const double _BottomS_Thickness = _BottomSleaddepth*2 + _BottomSBPdepth*2 + _BottomScopperdepth;
 
       const double B_dX = - _FrontS_Length - _BottomSfloor_Zlength/4 + 264.12;
@@ -643,10 +653,20 @@ namespace mu2e {
                                _BottomSBPdepth,
                                _BottomSOffsetInMu2e,
                                _BottomSRotation));
+    }
 
 
    ////////////////////////////////////////////////////////////////
    //STM Left Shielding
+
+    if (_handstacked) {
+      // The updated left wall: five layers worked inward from the
+      // outermost, already placed in parseConfig.
+          stm._pLeftWallParams = std::unique_ptr<LeftWall>
+          (new LeftWall(_LeftWallBuild,
+                        _LeftWallLeadLayers,
+                        _LeftWallSheets));
+    } else {
 
       const double _LeftS_Thickness = _LeftSleaddepth*2 + _LeftSBPdepth*2 + _LeftScopperdepth;
 
@@ -666,10 +686,21 @@ namespace mu2e {
                              _LeftSXmin,
                              _LeftSOffsetInMu2e,
                              _LeftSRotation));
+    }
 
 
    ////////////////////////////////////////////////////////////////
    //STM Right Shielding
+
+    if (_handstacked) {
+      // The updated right wall: five layers worked inward from the
+      // front shielding, already placed in parseConfig.
+          stm._pRightWallParams = std::unique_ptr<RightWall>
+          (new RightWall(_RightWallBuild,
+                         _RightWallLeadLayers,
+                         _RightWallSheets,
+                         _RightWallEdgePrism));
+    } else {
 
       const double _RightS_Thickness = (_RightSleaddepth*2 + _RightSBPdepth*2 + _RightScopperdepth)*sqrt(2);
 
@@ -689,10 +720,20 @@ namespace mu2e {
                               _RightSXmax,
                               _RightSOffsetInMu2e,
                               _RightSRotation));
+    }
 
 
    ////////////////////////////////////////////////////////////////
    //STM Top Shielding
+
+    if (_handstacked) {
+      // The updated roof: three layers worked downward from the top of
+      // the stack, already placed in parseConfig.
+          stm._pTopWallParams = std::unique_ptr<TopWall>
+          (new TopWall(_TopWallBuild,
+                       _TopWallLeadLayers,
+                       _TopWallSheets));
+    } else {
 
       const double _TopS_Thickness = _TopSleaddepth*2 + _TopSBPdepth*2 + _TopScopperdepth;
 
@@ -731,6 +772,7 @@ namespace mu2e {
                             _TopSLeak,
                             _TopSOffsetInMu2e,
                             _TopSRotation));
+    }
 
 
    ////////////////////////////////////////////////////////////////
@@ -1198,6 +1240,10 @@ namespace mu2e {
       // The wall starts behind the cradle and grows downstream.
       const double fsrFrontZ = _SSCSupportdepth + fsrGap;
 
+      // Kept for the sections that butt this one; see STMMaker.hh.
+      _FrontShieldingRightBrickEndX = fsrBrickEndX;
+      _FrontShieldingRightFrontZ    = fsrFrontZ;
+
       // The bores follow the collimator rather than the wall, so they
       // are placed from offset_Spot with only a correction of their
       // own. Their y is the beam plane.
@@ -1417,6 +1463,7 @@ namespace mu2e {
           fsrLastLeadZ = fsrZ;
           fsrLastLeadT = thick;
           fsrZ += thick;
+          _FrontShieldingRightLastLeadBackZ = fsrZ;
 
         } else {
           // A sheet layer: two plates split at the beam, sharing the
@@ -1857,51 +1904,937 @@ namespace mu2e {
     _LaBroffset_LaBr          = _config.getDouble("stm.LaBr.offset_LaBr");
 
 
-    _BottomShieldingBuild  = _config.getBool("stm.BottomShielding.build");
-    _BottomSfloor_Zlength  = _config.getDouble("stm.BottomShielding.floor_Zlength");
-    _BottomSFront_LB       = _config.getDouble("stm.BottomShielding.Front_LB");
-    _BottomSFront_LB_inner = _config.getDouble("stm.BottomShielding.Front_LB_inner");
-    _BottomSleaddepth      = _config.getDouble("stm.BottomShielding.leaddepth");
-    _BottomScopperdepth    = _config.getDouble("stm.BottomShielding.copperdepth");
-    _BottomSBPdepth        = _config.getDouble("stm.BottomShielding.BPdepth");
+    // The shield house's reference corner, where the walls meet the
+    // front shielding: the +x end of its courses, and the plane a
+    // wall's own offsets measure from. Resolved here, before any wall
+    // is expanded, so the walls key off one point instead of each
+    // rebuilding it -- and so none of them has to read another wall's
+    // keys to find it.
+    if (_handstacked) {
+      _ShieldHouseRefX = _FrontShieldingRightBrickEndX;
+      _ShieldHouseRefZ = _FrontShieldingRightFrontZ
+                       + _config.getDouble("stm.RightWall.refFromFrontZ");
+    }
+
+    // The updated bottom wall replaces BottomShielding. The two read
+    // different keys and a geometry file carries only one set.
+    if (_handstacked) {
+      // ---- Bottom wall ------------------------------------------------
+      //
+      // The floor, including the baseplate the whole house stands on.
+      // Five layers worked UPWARD in +y above the plate: a poly prism,
+      // a lead layer, the same prism again, a second lead layer, and
+      // two copper prisms.
+      //
+      // The reference is 5 in inboard of the house reference in x, at
+      // that reference's z, and at the TOP of the baseplate in y --
+      // the datum every wall stands on.
+
+      _BottomWallBuild = _config.getBool("stm.BottomWall.build");
+
+      const double bwRefX =
+        _ShieldHouseRefX + _config.getDouble("stm.BottomWall.refFromHouseX");
+      const double bwRefZ = _ShieldHouseRefZ;
+      const double bwRefY = -_STM_SSCboreToBase;
+
+      const std::string bwPolyMat = _config.getString("stm.BottomWall.BPmaterial");
+
+      // ---- the baseplate ----------------------------------------------
+      {
+        const double dx = _config.getDouble("stm.BottomWall.basePlate.dx");
+        const double dy = _config.getDouble("stm.BottomWall.basePlate.dy");
+        const double dz = _config.getDouble("stm.BottomWall.basePlate.dz");
+
+        _BottomWallPlate.material = _config.getString("stm.BottomWall.basePlate.material");
+        _BottomWallPlate.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+        // The reference is the plate's TOP, so the plate hangs below it
+        // and its centre is half a thickness down.
+        _BottomWallPlate.center   = CLHEP::Hep3Vector(
+          bwRefX + _config.getDouble("stm.BottomWall.basePlate.centreFromRefX"),
+          bwRefY - dy/2,
+          bwRefZ + _config.getDouble("stm.BottomWall.basePlate.centreFromRefZ"));
+      }
+
+      // Columns pitch along -x from the reference and run along +z.
+      const CLHEP::Hep3Vector bwCourseDir( 0., 0., 1.);
+      const CLHEP::Hep3Vector bwPitchDir (-1., 0., 0.);
+      const CLHEP::Hep3Vector bwDepthDir ( 0., 1., 0.);  // layers stack up
+
+      // Walk the layers upward from the top of the baseplate. Each
+      // starts at the top face of the one before it.
+      const int bwLayerN = _config.getInt("stm.BottomWall.layerN");
+      double bwY = bwRefY;
+      int bwLeadLayer = 0;
+      int bwPolyLayer = 0;
+
+      for (int L = 1; L <= bwLayerN; ++L) {
+        std::ostringstream key;
+        key << "stm.BottomWall.layer" << L;
+        const std::string kind = _config.getString(key.str());
+
+        if (kind == "BP") {
+          // The poly L, the same shape both times it appears.
+          ++bwPolyLayer;
+
+          const double t = _config.getDouble("stm.BottomWall.polyPrism.thickness");
+
+          std::ostringstream name;
+          name << "BPBottomWallPrism" << bwPolyLayer << "PV";
+
+          BottomWallPrism p;
+          p.name     = name.str();
+          p.material = bwPolyMat;
+          _config.getVectorDouble("stm.BottomWall.polyPrism.UVerts", p.uVerts);
+          _config.getVectorDouble("stm.BottomWall.polyPrism.VVerts", p.vVerts);
+          p.length      = t;
+          p.orientation = _config.getString("stm.BottomWall.polyPrism.orientation");
+          // The cap's origin is at the reference in x and z; the sweep
+          // is centred on the placement point, so the anchor sits half
+          // a thickness above this layer's underside.
+          p.anchor = CLHEP::Hep3Vector(bwRefX, bwY + t/2, bwRefZ);
+          _BottomWallPrisms.push_back(p);
+
+          bwY += t;
+
+        } else if (kind == "Pb") {
+          ++bwLeadLayer;
+
+          std::ostringstream nkey;
+          nkey << "stm.BottomWall.leadLayer" << bwLeadLayer << "ColumnN";
+          const int columnN = _config.getInt(nkey.str());
+
+          std::vector<BrickWallBrick> bricks;
+          double thick = 0.;
+          double acrossX = 0.;
+
+          // The columns. They butt one another along the pitch, so only
+          // each one's z start is given and its width follows from the
+          // bricks themselves.
+          for (int c = 1; c <= columnN; ++c) {
+            std::ostringstream ckey, okey, zkey;
+            ckey << "stm.BottomWall.leadLayer" << bwLeadLayer << "Column" << c;
+            okey << ckey.str() << "Orientation";
+            zkey << ckey.str() << "FromRefZ";
+
+            std::vector<int> types;
+            _config.getVectorInt(ckey.str(), types);
+            if (types.empty()) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ckey.str() << " is empty.\n";
+            }
+            const std::string orient = _config.getString(okey.str());
+            const double fromRefZ    = _config.getDouble(zkey.str());
+
+            CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
+            {
+              OrientationResolver OR;
+              OR.getRotationFromOrientation(rot, orient);
+            }
+            auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
+              if (type < 1 || type > int(_leadBrickDims.size())) {
+                throw cet::exception("GEOM")
+                  << "STMMaker: BottomWall names brick type " << type
+                  << ", but stm.leadBrick.typeN defines only "
+                  << _leadBrickDims.size() << ".\n";
+              }
+              return spanAlong(_leadBrickDims[type-1], rot, dir);
+            };
+
+            const double width = span(types[0], bwPitchDir);
+            if (thick == 0.) thick = span(types[0], bwDepthDir);
+
+            double along = 0.;
+            for (int t : types) {
+              const double len = span(t, bwCourseDir);
+              BrickWallBrick b;
+              b.type        = t;
+              b.orientation = orient;
+              b.center      = CLHEP::Hep3Vector(bwRefX - acrossX - width/2,
+                                                bwY + thick/2,
+                                                bwRefZ + fromRefZ + along + len/2);
+              bricks.push_back(b);
+              along += len;
+            }
+            acrossX += width;
+          }
+
+          // The bricks that break the column pattern, each given by its
+          // own centre rather than by a place in a column.
+          std::ostringstream xkey;
+          xkey << "stm.BottomWall.leadLayer" << bwLeadLayer << "ExtraN";
+          const int extraN = _config.getInt(xkey.str());
+
+          for (int e = 1; e <= extraN; ++e) {
+            std::ostringstream ekey;
+            ekey << "stm.BottomWall.leadLayer" << bwLeadLayer << "Extra" << e;
+            std::vector<double> v;
+            _config.getVectorDouble(ekey.str(), v, 4);
+
+            const int type = int(v[0]);
+            if (type < 1 || type > int(_leadBrickDims.size())) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ekey.str() << " names brick type " << type
+                << ", but stm.leadBrick.typeN defines only "
+                << _leadBrickDims.size() << ".\n";
+            }
+            // The orientation is carried as a number in the tuple, so
+            // it is turned back into the three-digit code the resolver
+            // reads. Leading zeros matter, hence the width.
+            std::ostringstream orient;
+            orient << std::setw(3) << std::setfill('0') << int(v[1]);
+
+            BrickWallBrick b;
+            b.type        = type;
+            b.orientation = orient.str();
+            b.center      = CLHEP::Hep3Vector(bwRefX + v[2],
+                                              bwY + thick/2,
+                                              bwRefZ + v[3]);
+            bricks.push_back(b);
+          }
+
+          _BottomWallLeadLayers.push_back(
+            BrickWall(_BottomWallBuild,
+                      CLHEP::Hep3Vector(bwRefX, bwY, bwRefZ),
+                      bwCourseDir, bwPitchDir, bwDepthDir,
+                      bricks, std::vector<BrickWallBore>()));
+
+          bwY += thick;
+
+        } else if (kind == "Cu") {
+          // Two prisms, each with its own outline and its own offsets.
+          const std::string mat =
+            _config.getString("stm.BottomWall.copperPrism.material");
+          const double t =
+            _config.getDouble("stm.BottomWall.copperPrism.thickness");
+          const std::string orient =
+            _config.getString("stm.BottomWall.copperPrism.orientation");
+          // These do not sit on the layer below: their height above the
+          // baseplate is stated, and the anchor is the mid-plane of the
+          // sweep rather than a face.
+          const double toBase =
+            _config.getDouble("stm.BottomWall.copperPrism.anchorToBase");
+
+          for (int i = 1; i <= 2; ++i) {
+            std::ostringstream base, name;
+            base << "stm.BottomWall.copperPrism" << i;
+            name << "CopperBottomWallPrism" << i << "PV";
+
+            BottomWallPrism p;
+            p.name     = name.str();
+            p.material = mat;
+            _config.getVectorDouble(base.str() + ".UVerts", p.uVerts);
+            _config.getVectorDouble(base.str() + ".VVerts", p.vVerts);
+            p.length      = t;
+            p.orientation = orient;
+            p.anchor = CLHEP::Hep3Vector(
+              bwRefX + _config.getDouble(base.str() + ".fromRefX"),
+              bwRefY + toBase,
+              bwRefZ + _config.getDouble(base.str() + ".fromRefZ"));
+            _BottomWallPrisms.push_back(p);
+          }
+
+          bwY += t;
+
+        } else {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << key.str() << " is \"" << kind
+            << "\", which is not one of BP, Pb or Cu.\n";
+        }
+      }
+
+    } else {
+      _BottomShieldingBuild  = _config.getBool("stm.BottomShielding.build");
+      _BottomSfloor_Zlength  = _config.getDouble("stm.BottomShielding.floor_Zlength");
+      _BottomSFront_LB       = _config.getDouble("stm.BottomShielding.Front_LB");
+      _BottomSFront_LB_inner = _config.getDouble("stm.BottomShielding.Front_LB_inner");
+      _BottomSleaddepth      = _config.getDouble("stm.BottomShielding.leaddepth");
+      _BottomScopperdepth    = _config.getDouble("stm.BottomShielding.copperdepth");
+      _BottomSBPdepth        = _config.getDouble("stm.BottomShielding.BPdepth");
+    }
 
 
-    _LeftShieldingBuild   = _config.getBool("stm.LeftShielding.build");
-    _LeftS_Length         = _config.getDouble("stm.LeftShielding.Length");
-    _LeftSleaddepth       = _config.getDouble("stm.LeftShielding.leaddepth");
-    _LeftScopperdepth     = _config.getDouble("stm.LeftShielding.copperdepth");
-    _LeftSBPdepth         = _config.getDouble("stm.LeftShielding.BPdepth");
-    _LeftSXmin            = _config.getDouble("stm.LeftShielding.Left_Xmin");
+    // The updated left wall replaces LeftShielding. The two read
+    // different keys and a geometry file carries only one set.
+    if (_handstacked) {
+      // ---- Left wall --------------------------------------------------
+      //
+      // The mirror of the right wall: the same five kinds of layer and
+      // the same sheet shapes, without the L-shaped edge piece.
+      //
+      // Layers are listed outside to inside and walk +x from the
+      // reference, which is the -x face of the outermost layer, so every
+      // piece lies on the same side of it.
+      //
+      // In z the reference is the -z end, shared with the right wall.
+      // The sheets and both lead layers run +z from it; the copper is
+      // the exception, sitting flush at the far +z end instead.
 
-    _RightShieldingBuild  = _config.getBool("stm.RightShielding.build");
-    _RightS_Length        = _config.getDouble("stm.RightShielding.Length");
-    _RightSleaddepth      = _config.getDouble("stm.RightShielding.leaddepth");
-    _RightScopperdepth    = _config.getDouble("stm.RightShielding.copperdepth");
-    _RightSBPdepth        = _config.getDouble("stm.RightShielding.BPdepth");
-    _RightSXmax           = _config.getDouble("stm.RightShielding.Right_Xmax");
+      _LeftWallBuild = _config.getBool("stm.LeftWall.build");
 
-    _TopShieldingBuild      = _config.getBool("stm.TopShielding.build");
-    _TopShieldingSkirtBuild = _config.getBool("stm.TopShielding.Skirtbuild");
-    _TopLiftBeam_L        = _config.getDouble("stm.TopShielding.LiftBeam_L");
-    _TopLiftBeam_H        = _config.getDouble("stm.TopShielding.LiftBeam_H");
-    _TopLiftBeam_T        = _config.getDouble("stm.TopShielding.LiftBeam_T");
-    _TopLiftBeam_Xmove    = _config.getDouble("stm.TopShielding.LiftBeam_Xmove");
-    _TopSZlength          = _config.getDouble("stm.TopShielding.Zlength");
-    _TopSXlength          = _config.getDouble("stm.TopShielding.Xlength");
-    _TopSFront_LT         = _config.getDouble("stm.TopShielding.Front_LT");
-    _TopTFZlength         = _config.getDouble("stm.TopShielding.TFZlength");
-    _TopTFXlength         = _config.getDouble("stm.TopShielding.TFXlength");
-    _TopTBZlength         = _config.getDouble("stm.TopShielding.TBZlength");
-    _TopScontainerdepth   = _config.getDouble("stm.TopShielding.containerdepth");
-    _TopSleaddepth        = _config.getDouble("stm.TopShielding.leaddepth");
-    _TopScopperdepth      = _config.getDouble("stm.TopShielding.copperdepth");
-    _TopSBPdepth          = _config.getDouble("stm.TopShielding.BPdepth");
-    _TopSZHole            = _config.getDouble("stm.TopShielding.Zhole");
-    _TopSBarLeft          = _config.getDouble("stm.TopShielding.BarLeft");
-    _TopSBarRight         = _config.getDouble("stm.TopShielding.BarRight");
-    _TopSGapLeft          = _config.getDouble("stm.TopShielding.GapLeft");
-    _TopSGapRight         = _config.getDouble("stm.TopShielding.GapRight");
-    _TopSLeak             = _config.getDouble("stm.TopShielding.Leak");
+      const double lwRefX =
+        _ShieldHouseRefX + _config.getDouble("stm.LeftWall.refFromBrickEndX");
+      // The walls all start together in z, at the house reference.
+      const double lwRefZ  = _ShieldHouseRefZ;
+      const double lwBaseY = -_STM_SSCboreToBase;
+
+      const std::string lwPolyMat = _config.getString("stm.LeftWall.BPmaterial");
+
+      // Courses run +z from the reference and stack up from the
+      // baseplate; the layers themselves build inward along +x.
+      const CLHEP::Hep3Vector lwCourseDir(0., 0., 1.);
+      const CLHEP::Hep3Vector lwPitchDir (0., 1., 0.);
+      const CLHEP::Hep3Vector lwDepthDir (1., 0., 0.);
+
+      const std::string lwBrickOrient =
+        _config.getString("stm.LeftWall.brickOrientation");
+      CLHEP::HepRotation lwBrickRot(CLHEP::HepRotation::IDENTITY);
+      {
+        OrientationResolver OR;
+        OR.getRotationFromOrientation(lwBrickRot, lwBrickOrient);
+      }
+      auto lwTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
+        if (type < 1 || type > int(_leadBrickDims.size())) {
+          throw cet::exception("GEOM")
+            << "STMMaker: LeftWall names brick type " << type
+            << ", but stm.leadBrick.typeN defines only "
+            << _leadBrickDims.size() << ".\n";
+        }
+        return spanAlong(_leadBrickDims[type-1], lwBrickRot, dir);
+      };
+
+      // How far the wall runs in z. The sheets and the lead layers all
+      // share it, and the copper is placed flush against its far end,
+      // so it is read once from the poly rather than per piece.
+      const double lwRunZ = _config.getDouble("stm.LeftWall.longwallPoly.dz");
+
+      // Walk the layers inward, each starting at the +x face of the one
+      // before it.
+      const int lwLayerN = _config.getInt("stm.LeftWall.layerN");
+      double lwX = lwRefX;
+      int lwLeadLayer = 0;
+      int lwPolyPair = 0;
+
+      for (int L = 1; L <= lwLayerN; ++L) {
+        std::ostringstream key;
+        key << "stm.LeftWall.layer" << L;
+        const std::string kind = _config.getString(key.str());
+
+        if (kind == "Pb") {
+          ++lwLeadLayer;
+
+          std::ostringstream nkey;
+          nkey << "stm.LeftWall.leadLayer" << lwLeadLayer << "CourseN";
+          const int courseN = _config.getInt(nkey.str());
+
+          // The layer is one brick deep, and the pitch is the brick's
+          // own span up the stack -- both follow from the rotation.
+          double thick = 0.;
+          double pitchAt = 0.;
+
+          std::vector<BrickWallBrick> bricks;
+          for (int c = 1; c <= courseN; ++c) {
+            std::ostringstream ckey;
+            ckey << "stm.LeftWall.leadLayer" << lwLeadLayer << "Course" << c;
+            std::vector<int> types;
+            _config.getVectorInt(ckey.str(), types);
+            if (types.empty()) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ckey.str() << " is empty.\n";
+            }
+
+            if (thick == 0.) thick = lwTypeSpan(types[0], lwDepthDir);
+            const double step = lwTypeSpan(types[0], lwPitchDir);
+
+            double along = 0.;
+            for (int t : types) {
+              const double w = lwTypeSpan(t, lwCourseDir);
+              BrickWallBrick b;
+              b.type        = t;
+              b.orientation = lwBrickOrient;
+              b.center      = CLHEP::Hep3Vector(lwX, lwBaseY, lwRefZ)
+                            + lwCourseDir*(along + w/2)
+                            + lwPitchDir *(pitchAt + step/2)
+                            + lwDepthDir *(thick/2);
+              bricks.push_back(b);
+              along += w;
+            }
+            pitchAt += step;
+          }
+
+          _LeftWallLeadLayers.push_back(
+            BrickWall(_LeftWallBuild,
+                      CLHEP::Hep3Vector(lwX, lwBaseY, lwRefZ),
+                      lwCourseDir, lwPitchDir, lwDepthDir,
+                      bricks, std::vector<BrickWallBore>()));
+          lwX += thick;
+
+        } else if (kind == "BP") {
+          // A longwall standing on the baseplate and a top edge above
+          // it, meeting with no gap.
+          ++lwPolyPair;
+
+          const double lgDx = _config.getDouble("stm.LeftWall.longwallPoly.dx");
+          const double lgDy = _config.getDouble("stm.LeftWall.longwallPoly.dy");
+          const double lgDz = _config.getDouble("stm.LeftWall.longwallPoly.dz");
+          const double lgToBase =
+            _config.getDouble("stm.LeftWall.longwallPoly.bottomToBase");
+
+          std::ostringstream lgName;
+          lgName << "BPLeftWallLongwall" << lwPolyPair << "PV";
+
+          LeftWallSheet longwall;
+          longwall.name     = lgName.str();
+          longwall.material = lwPolyMat;
+          longwall.halfDim  = CLHEP::Hep3Vector(lgDx/2, lgDy/2, lgDz/2);
+          longwall.center   = CLHEP::Hep3Vector(lwX + lgDx/2,
+                                                lwBaseY + lgToBase + lgDy/2,
+                                                lwRefZ + lgDz/2);
+          _LeftWallSheets.push_back(longwall);
+
+          const double teDx = _config.getDouble("stm.LeftWall.topEdgePoly.dx");
+          const double teDy = _config.getDouble("stm.LeftWall.topEdgePoly.dy");
+          const double teDz = _config.getDouble("stm.LeftWall.topEdgePoly.dz");
+          const double teToBase =
+            _config.getDouble("stm.LeftWall.topEdgePoly.bottomToBase");
+
+          std::ostringstream teName;
+          teName << "BPLeftWallTopEdge" << lwPolyPair << "PV";
+
+          LeftWallSheet top;
+          top.name     = teName.str();
+          top.material = lwPolyMat;
+          top.halfDim  = CLHEP::Hep3Vector(teDx/2, teDy/2, teDz/2);
+          top.center   = CLHEP::Hep3Vector(lwX + teDx/2,
+                                           lwBaseY + teToBase + teDy/2,
+                                           lwRefZ + teDz/2);
+          _LeftWallSheets.push_back(top);
+
+          // Both are one plate thick, so either gives the step.
+          lwX += lgDx;
+
+        } else if (kind == "Cu") {
+          const double dx = _config.getDouble("stm.LeftWall.copperSheet.dx");
+          const double dy = _config.getDouble("stm.LeftWall.copperSheet.dy");
+          const double dz = _config.getDouble("stm.LeftWall.copperSheet.dz");
+          const double toBase =
+            _config.getDouble("stm.LeftWall.copperSheet.bottomToBase");
+
+          // The one piece that does not start at the reference: it runs
+          // the wall's length downstream and sits flush at the far +z
+          // end, so its centre is half its own depth back from there.
+          LeftWallSheet s;
+          s.name     = "CopperLeftWallSheetPV";
+          s.material = _config.getString("stm.LeftWall.copperSheet.material");
+          s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+          s.center   = CLHEP::Hep3Vector(lwX + dx/2,
+                                         lwBaseY + toBase + dy/2,
+                                         lwRefZ + lwRunZ - dz/2);
+          _LeftWallSheets.push_back(s);
+
+          lwX += dx;
+
+        } else {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << key.str() << " is \"" << kind
+            << "\", which is not one of Pb, BP or Cu.\n";
+        }
+      }
+
+    } else {
+      _LeftShieldingBuild   = _config.getBool("stm.LeftShielding.build");
+      _LeftS_Length         = _config.getDouble("stm.LeftShielding.Length");
+      _LeftSleaddepth       = _config.getDouble("stm.LeftShielding.leaddepth");
+      _LeftScopperdepth     = _config.getDouble("stm.LeftShielding.copperdepth");
+      _LeftSBPdepth         = _config.getDouble("stm.LeftShielding.BPdepth");
+      _LeftSXmin            = _config.getDouble("stm.LeftShielding.Left_Xmin");
+    }
+
+    // The updated right wall replaces RightShielding. The two read
+    // different keys and a geometry file carries only one set.
+    if (_handstacked) {
+      // ---- Right wall -------------------------------------------------
+      //
+      // The wall along +x, running downstream from the front shielding.
+      // Five layers worked inward along -x from one reference vertex,
+      // which is
+      //
+      //   - refFromFrontZ downstream of the front shielding's front
+      //     face, flush with the +z side of its last lead layer,
+      //   - at that layer's +x, -y corner.
+      //
+      // Courses here run along +z and the layers stack along -x, so the
+      // BrickWall directions differ from the front shielding's while the
+      // class is the same.
+
+      _RightWallBuild = _config.getBool("stm.RightWall.build");
+
+      const double rwRefFromFront =
+        _config.getDouble("stm.RightWall.refFromFrontZ");
+      // The house reference is built from this same key, so the two
+      // agree by construction; it is named here for the messages below.
+      const double rwRefZ = _ShieldHouseRefZ;
+
+      // The reference is meant to land on the back of the front
+      // shielding's last lead layer, a plane the layer stack also
+      // gives. The wall runs downstream from the reference, so a
+      // reference upstream of that plane drives the wall INTO the
+      // front shielding; downstream of it only opens a gap.
+      {
+        const double dimTolerance = 0.001;  // mm
+        const double slack = rwRefZ - _FrontShieldingRightLastLeadBackZ;
+        if (slack < -dimTolerance) {
+          throw cet::exception("GEOM")
+            << "STMMaker: stm.RightWall.refFromFrontZ puts the right wall's"
+            << " reference at z = " << rwRefZ << " mm, "
+            << -slack << " mm INSIDE the front shielding, whose last lead"
+            << " layer ends at " << _FrontShieldingRightLastLeadBackZ
+            << " mm.\n"
+            << "The two would overlap. Check refFromFrontZ ("
+            << rwRefFromFront << " mm) against the front shielding's"
+            << " layer sequence.\n";
+        }
+        else if (slack > dimTolerance) {
+          mf::LogWarning("GEOM")
+            << "STMMaker: the right wall starts " << slack
+            << " mm downstream of the front shielding's last lead layer"
+            << " (wall reference z = " << rwRefZ << " mm, layer ends at "
+            << _FrontShieldingRightLastLeadBackZ << " mm), leaving a gap."
+            << " Intentional if refFromFrontZ (" << rwRefFromFront
+            << " mm) was set that way.\n";
+        }
+        else if (_verbosityLevel > 0) {
+          mf::LogInfo("GEOM")
+            << "STMMaker: the right wall butts the front shielding's last"
+            << " lead layer (<" << dimTolerance << " mm), at z = " << rwRefZ
+            << " mm.\n";
+        }
+      }
+
+      // The wall's +x face: the front shielding's courses end there.
+      const double rwRefX  = _ShieldHouseRefX;
+      const double rwBaseY = -_STM_SSCboreToBase;
+
+      const std::string rwPolyMat = _config.getString("stm.RightWall.BPmaterial");
+
+      // Courses run +z from the reference and stack up from the
+      // baseplate; the layers themselves step inward along -x.
+      const CLHEP::Hep3Vector rwCourseDir( 0., 0., 1.);
+      const CLHEP::Hep3Vector rwPitchDir ( 0., 1., 0.);
+      const CLHEP::Hep3Vector rwDepthDir (-1., 0., 0.);
+
+      const std::string rwBrickOrient =
+        _config.getString("stm.RightWall.brickOrientation");
+      CLHEP::HepRotation rwBrickRot(CLHEP::HepRotation::IDENTITY);
+      {
+        OrientationResolver OR;
+        OR.getRotationFromOrientation(rwBrickRot, rwBrickOrient);
+      }
+      auto rwTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
+        if (type < 1 || type > int(_leadBrickDims.size())) {
+          throw cet::exception("GEOM")
+            << "STMMaker: RightWall names brick type " << type
+            << ", but stm.leadBrick.typeN defines only "
+            << _leadBrickDims.size() << ".\n";
+        }
+        return spanAlong(_leadBrickDims[type-1], rwBrickRot, dir);
+      };
+
+      // Walk the layers inward. Each starts at the -x face of the one
+      // before it, so a layer's own thickness is the only thing that
+      // separates it from the next.
+      const int rwLayerN = _config.getInt("stm.RightWall.layerN");
+      double rwX = rwRefX;
+      int rwLeadLayer = 0;
+
+      for (int L = 1; L <= rwLayerN; ++L) {
+        std::ostringstream key;
+        key << "stm.RightWall.layer" << L;
+        const std::string kind = _config.getString(key.str());
+
+        if (kind == "Pb") {
+          ++rwLeadLayer;
+
+          std::ostringstream nkey;
+          nkey << "stm.RightWall.leadLayer" << rwLeadLayer << "CourseN";
+          const int courseN = _config.getInt(nkey.str());
+
+          // The layer is one brick deep, and the pitch is the brick's
+          // own span up the stack -- both follow from the rotation, so
+          // neither is given in the config.
+          double thick = 0.;
+          double pitchAt = 0.;
+
+          std::vector<BrickWallBrick> bricks;
+          for (int c = 1; c <= courseN; ++c) {
+            std::ostringstream ckey;
+            ckey << "stm.RightWall.leadLayer" << rwLeadLayer << "Course" << c;
+            std::vector<int> types;
+            _config.getVectorInt(ckey.str(), types);
+            if (types.empty()) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ckey.str() << " is empty.\n";
+            }
+
+            if (thick == 0.) thick = rwTypeSpan(types[0], rwDepthDir);
+            const double step = rwTypeSpan(types[0], rwPitchDir);
+
+            double along = 0.;
+            for (int t : types) {
+              const double w = rwTypeSpan(t, rwCourseDir);
+              BrickWallBrick b;
+              b.type        = t;
+              b.orientation = rwBrickOrient;
+              b.center      = CLHEP::Hep3Vector(rwX, rwBaseY, rwRefZ)
+                            + rwCourseDir*(along + w/2)
+                            + rwPitchDir *(pitchAt + step/2)
+                            + rwDepthDir *(thick/2);
+              bricks.push_back(b);
+              along += w;
+            }
+            pitchAt += step;
+          }
+
+          _RightWallLeadLayers.push_back(
+            BrickWall(_RightWallBuild,
+                      CLHEP::Hep3Vector(rwX, rwBaseY, rwRefZ),
+                      rwCourseDir, rwPitchDir, rwDepthDir,
+                      bricks, std::vector<BrickWallBore>()));
+          rwX -= thick;
+
+        } else if (kind == "BPouter") {
+          // The L-shaped edge piece, placed by the corner where it
+          // meets the front shielding, and the sheet above it.
+          _RightWallEdgePrism.material = rwPolyMat;
+          _config.getVectorDouble("stm.RightWall.edgePoly.UVerts",
+                                  _RightWallEdgePrism.uVerts);
+          _config.getVectorDouble("stm.RightWall.edgePoly.VVerts",
+                                  _RightWallEdgePrism.vVerts);
+          _RightWallEdgePrism.length =
+            _config.getDouble("stm.RightWall.edgePoly.thickness");
+          _RightWallEdgePrism.orientation =
+            _config.getString("stm.RightWall.edgePoly.orientation");
+          // The sweep is centred on the placement point, so the anchor
+          // sits half a thickness inboard of this layer's +x face. As
+          // the layer is on the +x side of the reference point, need to
+          // add half thickness to rwX.
+          _RightWallEdgePrism.anchor =
+            CLHEP::Hep3Vector(rwX + _RightWallEdgePrism.length/2,
+                              rwBaseY, rwRefZ);
+
+          const double dx = _config.getDouble("stm.RightWall.outerTopPoly.dx");
+          const double dy = _config.getDouble("stm.RightWall.outerTopPoly.dy");
+          const double dz = _config.getDouble("stm.RightWall.outerTopPoly.dz");
+          const double toBase =
+            _config.getDouble("stm.RightWall.outerTopPoly.bottomToBase");
+
+          // Its -z end is flush with the +z side of the L's upright,
+          // which stands at the reference, so its z follows from that
+          // rather than being given.
+          RightWallSheet s;
+          s.name     = "BPRightWallOuterTopPV";
+          s.material = rwPolyMat;
+          s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+          s.center   = CLHEP::Hep3Vector(rwX + dx/2,
+                                         rwBaseY + toBase + dy/2,
+                                         rwRefZ + dz/2);
+          _RightWallSheets.push_back(s);
+
+          // rwX is not incremented here. Moving to the other side of the reference point.
+
+        } else if (kind == "BPinner") {
+          // The longwall below and the top sheet above it, sharing this
+          // layer's plane and the reference as their -z end.
+          const double lwDx = _config.getDouble("stm.RightWall.longwallPoly.dx");
+          const double lwDy = _config.getDouble("stm.RightWall.longwallPoly.dy");
+          const double lwDz = _config.getDouble("stm.RightWall.longwallPoly.dz");
+          const double lwToBase =
+            _config.getDouble("stm.RightWall.longwallPoly.bottomToBase");
+
+          RightWallSheet longwall;
+          longwall.name     = "BPRightWallLongwallPV";
+          longwall.material = rwPolyMat;
+          longwall.halfDim  = CLHEP::Hep3Vector(lwDx/2, lwDy/2, lwDz/2);
+          longwall.center   = CLHEP::Hep3Vector(rwX - lwDx/2,
+                                                rwBaseY + lwToBase + lwDy/2,
+                                                rwRefZ + lwDz/2);
+          _RightWallSheets.push_back(longwall);
+
+          const double tpDx = _config.getDouble("stm.RightWall.innerTopPoly.dx");
+          const double tpDy = _config.getDouble("stm.RightWall.innerTopPoly.dy");
+          const double tpDz = _config.getDouble("stm.RightWall.innerTopPoly.dz");
+          const double tpToBase =
+            _config.getDouble("stm.RightWall.innerTopPoly.bottomToBase");
+
+          RightWallSheet top;
+          top.name     = "BPRightWallInnerTopPV";
+          top.material = rwPolyMat;
+          top.halfDim  = CLHEP::Hep3Vector(tpDx/2, tpDy/2, tpDz/2);
+          top.center   = CLHEP::Hep3Vector(rwX - tpDx/2,
+                                           rwBaseY + tpToBase + tpDy/2,
+                                           rwRefZ + tpDz/2);
+          _RightWallSheets.push_back(top);
+
+          // Both are one plate thick, so either gives the step.
+          rwX -= lwDx;
+
+        } else if (kind == "Cu") {
+          const double dx = _config.getDouble("stm.RightWall.copperSheet.dx");
+          const double dy = _config.getDouble("stm.RightWall.copperSheet.dy");
+          const double dz = _config.getDouble("stm.RightWall.copperSheet.dz");
+          const double toBase =
+            _config.getDouble("stm.RightWall.copperSheet.bottomToBase");
+          // This one does not start at the reference: it begins a
+          // lining's thickness downstream, clear of the front
+          // shielding's copper.
+          const double fromRefZ =
+            _config.getDouble("stm.RightWall.copperSheet.fromRefZ");
+
+          RightWallSheet s;
+          s.name     = "CopperRightWallSheetPV";
+          s.material = _config.getString("stm.RightWall.copperSheet.material");
+          s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+          s.center   = CLHEP::Hep3Vector(rwX - dx/2,
+                                         rwBaseY + toBase + dy/2,
+                                         rwRefZ + fromRefZ + dz/2);
+          _RightWallSheets.push_back(s);
+
+          rwX -= dx;
+
+        } else {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << key.str() << " is \"" << kind
+            << "\", which is not one of Pb, BPouter, BPinner or Cu.\n";
+        }
+      }
+
+    } else {
+      _RightShieldingBuild  = _config.getBool("stm.RightShielding.build");
+      _RightS_Length        = _config.getDouble("stm.RightShielding.Length");
+      _RightSleaddepth      = _config.getDouble("stm.RightShielding.leaddepth");
+      _RightScopperdepth    = _config.getDouble("stm.RightShielding.copperdepth");
+      _RightSBPdepth        = _config.getDouble("stm.RightShielding.BPdepth");
+      _RightSXmax           = _config.getDouble("stm.RightShielding.Right_Xmax");
+    }
+
+    // The updated top wall replaces TopShielding. The two read
+    // different keys and a geometry file carries only one set.
+    if (_handstacked) {
+      // ---- Top wall ---------------------------------------------------
+      //
+      // The roof: three layers worked DOWNWARD in -y from the top of
+      // the stack -- a pair of borated poly sheets, a layer of lead
+      // bricks laid flat, and a pair of aluminium plates.
+      //
+      // The reference is inboard of the house reference in x, at that
+      // reference's z, and at the TOP of the stack in y. The height is
+      // built from the aluminium upward: wallToBase is the plates'
+      // underside, and the reference sits the three layers' thickness
+      // above it, so thickening a layer lifts the roof rather than
+      // driving the aluminium into the wall below.
+
+      _TopWallBuild = _config.getBool("stm.TopWall.build");
+
+      const double twRefX =
+        _ShieldHouseRefX + _config.getDouble("stm.TopWall.refFromRightWallX");
+      const double twRefZ = _ShieldHouseRefZ;
+
+      const std::string twPolyMat = _config.getString("stm.TopWall.BPmaterial");
+
+      // The layers' own thicknesses, needed before any is placed so
+      // that the reference can sit on top of the finished stack.
+      const double twPolyT  = _config.getDouble("stm.TopWall.polySheet1.dy");
+      const double twPlateT = _config.getDouble("stm.TopWall.plate.dy");
+
+      // Columns run side by side across the roof and each column runs
+      // along z. Both step away from the reference, so the directions
+      // are negative and the layer hangs below it.
+      const CLHEP::Hep3Vector twCourseDir( 0.,  0., 1.);
+      const CLHEP::Hep3Vector twPitchDir (-1.,  0., 0.);
+      const CLHEP::Hep3Vector twDepthDir ( 0., -1., 0.);
+
+      const std::string twBrickOrient1 =
+        _config.getString("stm.TopWall.brickColumn1Orientation");
+      CLHEP::HepRotation twBrickRot1(CLHEP::HepRotation::IDENTITY);
+      {
+        OrientationResolver OR;
+        OR.getRotationFromOrientation(twBrickRot1, twBrickOrient1);
+      }
+      // The bricks lie flat, so the layer's thickness is a brick's 2 in
+      // whichever way the column is turned. Read from the first column.
+      const double twLeadT =
+        spanAlong(_leadBrickDims.at(1), twBrickRot1, twDepthDir);
+
+      const double twRefY = -_STM_SSCboreToBase
+                          + _config.getDouble("stm.TopWall.wallToBase")
+                          + twPlateT + twLeadT + twPolyT;
+
+      // Walk the layers downward. Each starts at the underside of the
+      // one before it, so a layer's own thickness is the only thing
+      // that separates it from the next.
+      const int twLayerN = _config.getInt("stm.TopWall.layerN");
+      double twY = twRefY;
+
+      for (int L = 1; L <= twLayerN; ++L) {
+        std::ostringstream key;
+        key << "stm.TopWall.layer" << L;
+        const std::string kind = _config.getString(key.str());
+
+        if (kind == "BP") {
+          // Two sheets side by side across the roof, the second also
+          // starting a stated distance along z from the reference.
+          double acrossX = 0.;
+          for (int s = 1; s <= 2; ++s) {
+            std::ostringstream base;
+            base << "stm.TopWall.polySheet" << s;
+            const double dx = _config.getDouble(base.str() + ".dx");
+            const double dy = _config.getDouble(base.str() + ".dy");
+            const double dz = _config.getDouble(base.str() + ".dz");
+            // The first sheet starts at the reference; only the second
+            // states an offset.
+            const double fromRefZ = (s == 1) ? 0.
+              : _config.getDouble(base.str() + ".fromRefZ");
+
+            std::ostringstream name;
+            name << "BPTopWallSheet" << s << "PV";
+
+            TopWallSheet sheet;
+            sheet.name     = name.str();
+            sheet.material = twPolyMat;
+            sheet.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+            sheet.center   = CLHEP::Hep3Vector(twRefX - acrossX - dx/2,
+                                               twY - dy/2,
+                                               twRefZ + fromRefZ + dz/2);
+            _TopWallSheets.push_back(sheet);
+
+            acrossX += dx;
+          }
+
+          twY -= twPolyT;
+
+        } else if (kind == "Pb") {
+          // Five columns side by side across the roof, each running
+          // along z from its own start. Orientation and z offset are
+          // per column, since the first column is turned differently
+          // from the rest and the last two begin further along.
+          const int columnN = _config.getInt("stm.TopWall.brickColumnN");
+
+          std::vector<BrickWallBrick> bricks;
+          double acrossX = 0.;
+
+          for (int c = 1; c <= columnN; ++c) {
+            std::ostringstream ckey, okey, zkey;
+            ckey << "stm.TopWall.brickColumn" << c;
+            okey << "stm.TopWall.brickColumn" << c << "Orientation";
+            zkey << "stm.TopWall.brickColumn" << c << "FromRefZ";
+
+            std::vector<int> types;
+            _config.getVectorInt(ckey.str(), types);
+            if (types.empty()) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << ckey.str() << " is empty.\n";
+            }
+            const std::string orient = _config.getString(okey.str());
+            const double fromRefZ    = _config.getDouble(zkey.str());
+
+            CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
+            {
+              OrientationResolver OR;
+              OR.getRotationFromOrientation(rot, orient);
+            }
+            auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
+              if (type < 1 || type > int(_leadBrickDims.size())) {
+                throw cet::exception("GEOM")
+                  << "STMMaker: TopWall names brick type " << type
+                  << ", but stm.leadBrick.typeN defines only "
+                  << _leadBrickDims.size() << ".\n";
+              }
+              return spanAlong(_leadBrickDims[type-1], rot, dir);
+            };
+
+            // The column's width across the roof, from any of its
+            // bricks: they all lie the same way within a column.
+            const double width = span(types[0], twPitchDir);
+
+            double along = 0.;
+            for (int t : types) {
+              const double len = span(t, twCourseDir);
+              BrickWallBrick b;
+              b.type        = t;
+              b.orientation = orient;
+              // Each brick sits half the layer's thickness below the
+              // layer's top.
+              b.center = CLHEP::Hep3Vector(twRefX - acrossX - width/2,
+                                           twY - twLeadT/2,
+                                           twRefZ + fromRefZ + along + len/2);
+              bricks.push_back(b);
+              along += len;
+            }
+            acrossX += width;
+          }
+
+          _TopWallLeadLayers.push_back(
+            BrickWall(_TopWallBuild,
+                      CLHEP::Hep3Vector(twRefX, twY, twRefZ),
+                      twCourseDir, twPitchDir, twDepthDir,
+                      bricks, std::vector<BrickWallBore>()));
+
+          twY -= twLeadT;
+
+        } else if (kind == "Al") {
+          // Two identical plates side by side in z.
+          const std::string mat = _config.getString("stm.TopWall.plate.material");
+          const double dx = _config.getDouble("stm.TopWall.plate.dx");
+          const double dy = _config.getDouble("stm.TopWall.plate.dy");
+          const double dz = _config.getDouble("stm.TopWall.plate.dz");
+          const int    n  = _config.getInt("stm.TopWall.plateN");
+
+          for (int p = 0; p < n; ++p) {
+            std::ostringstream name;
+            name << "AluminumTopWallPlate" << p+1 << "PV";
+
+            TopWallSheet plate;
+            plate.name     = name.str();
+            plate.material = mat;
+            plate.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+            plate.center   = CLHEP::Hep3Vector(twRefX - dx/2,
+                                               twY - dy/2,
+                                               twRefZ + p*dz + dz/2);
+            _TopWallSheets.push_back(plate);
+          }
+
+          twY -= twPlateT;
+
+        } else {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << key.str() << " is \"" << kind
+            << "\", which is not one of BP, Pb or Al.\n";
+        }
+      }
+
+    } else {
+      _TopShieldingBuild      = _config.getBool("stm.TopShielding.build");
+      _TopShieldingSkirtBuild = _config.getBool("stm.TopShielding.Skirtbuild");
+      _TopLiftBeam_L        = _config.getDouble("stm.TopShielding.LiftBeam_L");
+      _TopLiftBeam_H        = _config.getDouble("stm.TopShielding.LiftBeam_H");
+      _TopLiftBeam_T        = _config.getDouble("stm.TopShielding.LiftBeam_T");
+      _TopLiftBeam_Xmove    = _config.getDouble("stm.TopShielding.LiftBeam_Xmove");
+      _TopSZlength          = _config.getDouble("stm.TopShielding.Zlength");
+      _TopSXlength          = _config.getDouble("stm.TopShielding.Xlength");
+      _TopSFront_LT         = _config.getDouble("stm.TopShielding.Front_LT");
+      _TopTFZlength         = _config.getDouble("stm.TopShielding.TFZlength");
+      _TopTFXlength         = _config.getDouble("stm.TopShielding.TFXlength");
+      _TopTBZlength         = _config.getDouble("stm.TopShielding.TBZlength");
+      _TopScontainerdepth   = _config.getDouble("stm.TopShielding.containerdepth");
+      _TopSleaddepth        = _config.getDouble("stm.TopShielding.leaddepth");
+      _TopScopperdepth      = _config.getDouble("stm.TopShielding.copperdepth");
+      _TopSBPdepth          = _config.getDouble("stm.TopShielding.BPdepth");
+      _TopSZHole            = _config.getDouble("stm.TopShielding.Zhole");
+      _TopSBarLeft          = _config.getDouble("stm.TopShielding.BarLeft");
+      _TopSBarRight         = _config.getDouble("stm.TopShielding.BarRight");
+      _TopSGapLeft          = _config.getDouble("stm.TopShielding.GapLeft");
+      _TopSGapRight         = _config.getDouble("stm.TopShielding.GapRight");
+      _TopSLeak             = _config.getDouble("stm.TopShielding.Leak");
+    }
 
     _BackShieldingBuild   = _config.getBool("stm.BackShielding.build");
     _BackSBPThick         = _config.getDouble("stm.BackShielding.BPThick");

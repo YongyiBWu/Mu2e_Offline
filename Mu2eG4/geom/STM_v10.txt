@@ -111,6 +111,22 @@ double stm.STM_SSC.ZGapBack        = 4.35;
 // is the value two all-imperial paths give exactly.
 double stm.STM_SSC.boreToBase      = 236.000;
 
+// Standoff from STMShieldingRef -- the cradle's front face -- to the
+// BACK OF THE SHIELD HOUSE LEAD. Together with the back gap and the
+// borated poly thickness, which are added on top of it later, this is
+// what sets the house's absolute z.
+//
+// Rederived rather than inherited, as the sum of the layers already
+// given above and below:
+//
+//     cradle 110.300 + wallToCradleGap 1.200
+//                    + front shielding 203.200  (2+1+2+1+2 in)
+//                    + side walls      609.600  (24 in)
+//                    = 924.300                  (36.39 in)
+//
+// Note the top wall's aluminium plate extends 1 in past this plane.
+double stm.STM_SSC.FrontToWall     = 924.300;
+
 
 // ---- Steel support cradle ----------------------------------------
 //
@@ -563,6 +579,451 @@ vector<double> stm.FrontShieldingLeft.triangle.UVerts = {0.0, 76.2,   0.0};
 vector<double> stm.FrontShieldingLeft.triangle.VVerts = {0.0,  0.0, -76.2};
 double stm.FrontShieldingLeft.triangle.length      = 152.400;  // 6 in
 string stm.FrontShieldingLeft.triangle.orientation = "300";
+
+
+// ---- Right wall ----------------------------------------------------
+//
+// The wall along +x, running downstream from the front shielding. Five
+// layers worked inward from +x: an outer poly pair, a lead layer, an
+// inner poly pair, a second lead layer, and a copper sheet. 26 pieces.
+//
+// Everything is keyed to one point, wallRefFromFrontZ downstream of the
+// front shielding's front face. That point is
+//
+//   - flush with the +z side of the third lead layer of the front
+//     shielding (the fifth layer counting the borated poly), 
+//   - butting against the +x, -y, +z corner of that lead layer, and
+//   - the +x, -y, -z vertex of this wall's lead layers.
+//
+// The edge poly's -x end is flush with the front shielding's +x
+// surface and butts it in +x, and its height matches there; taking the
+// reference 8 in downstream instead makes every other piece follow from
+// a common vertex.
+//
+// The layers then step inward along -x from that vertex, so a layer's
+// own thickness is what separates it from the next.
+bool   stm.RightWall.build = true;
+
+double stm.RightWall.refFromFrontZ = 203.200;  // 8 in; 205 as measured
+
+// All the poly here is the same borated grade as the front shielding's.
+string stm.RightWall.BPmaterial = "Polyethylene092B050d095";
+
+// Layer sequence, worked inward from the reference vertex.
+int    stm.RightWall.layerN = 5;
+string stm.RightWall.layer1 = "BPouter";  // edge prism + outer top sheet
+string stm.RightWall.layer2 = "Pb";       // 4 courses of 3
+string stm.RightWall.layer3 = "BPinner";  // longwall + top sheet
+string stm.RightWall.layer4 = "Pb";       // 3 courses of 3
+string stm.RightWall.layer5 = "Cu";       // copper sheet
+
+// ---- Layer 1: the outer poly pair ---------------------------------
+//
+// The edge piece is an L in the y-z plane swept 1 in along x. Its
+// outline starts at the reference vertex: a 8 in x 490 mm block at +u,
+// then the wall runs 24 in along -u at 254 mm high. The sweep is 1 inch
+// along x. Note the prism's anchor point is 0.5 in away from the right
+// wall reference point in the +x direction.
+double stm.RightWall.edgePoly.thickness = 25.400;  // 1 in, along x
+vector<double> stm.RightWall.edgePoly.UVerts =
+  {0.0, 203.2, 203.2,   0.0,   0.0, -609.6, -609.6};
+vector<double> stm.RightWall.edgePoly.VVerts =
+  {0.0,   0.0, 490.0, 490.0, 254.0,  254.0,    0.0};
+string stm.RightWall.edgePoly.orientation = "010";
+
+// The sheet above it, sharing its x plane.
+double stm.RightWall.outerTopPoly.dx = 25.400;  // 1 in, thickness
+double stm.RightWall.outerTopPoly.dy = 152.400;  // 6 in
+double stm.RightWall.outerTopPoly.dz = 609.600;  // 24 in
+// Height of its underside above the baseplate, and how far its -z end
+// sits from the reference vertex. Its -z side is flush with the +z
+// side of L's vertical leg, so z is not specified.
+double stm.RightWall.outerTopPoly.bottomToBase = 254.000;   // measured as 253.9 mm, snapping to 10 in
+
+// ---- Layer 2: the first lead layer --------------------------------
+//
+// Courses run along z from the reference vertex toward +z, stacking up
+// from the baseplate on a 4 in pitch. Each course is three 8 in bricks,
+// so the layer is 24 in long and 16 in tall.
+//
+// The bricks lie with their 8 in along z and 4 in up y, so the 2 in is
+// the layer thickness in x. Uniform rotation for all bricks here.
+// Pitch is clear from the rotation.
+string stm.RightWall.brickOrientation = "010";
+
+int stm.RightWall.leadLayer1CourseN = 4;
+vector<int> stm.RightWall.leadLayer1Course1 = {2,2,2};
+vector<int> stm.RightWall.leadLayer1Course2 = {2,2,2};
+vector<int> stm.RightWall.leadLayer1Course3 = {2,2,2};
+vector<int> stm.RightWall.leadLayer1Course4 = {2,2,2};
+
+// ---- Layer 3: the inner poly pair ---------------------------------
+//
+// The longwall below and a top sheet above it, splitting the same
+// 24 in length between them.
+double stm.RightWall.longwallPoly.dx = 25.400;  //  1 in, thickness
+double stm.RightWall.longwallPoly.dy = 254.000; // 10 in
+double stm.RightWall.longwallPoly.dz = 609.600; // 24 in
+double stm.RightWall.longwallPoly.bottomToBase = 0.000;
+
+double stm.RightWall.innerTopPoly.dx = 25.400;   // 1 in, thickness
+double stm.RightWall.innerTopPoly.dy = 152.400;  // 6 in
+double stm.RightWall.innerTopPoly.dz = 609.600;  // 24 in
+double stm.RightWall.innerTopPoly.bottomToBase = 254.000;
+
+// Both share the layer's -z end as the reference vertex. Not separately
+// specified.
+
+// ---- Layer 4: the second lead layer -------------------------------
+//
+// The same courses as layer 2 without its top one: a 3 x 3 grid.
+int stm.RightWall.leadLayer2CourseN = 3;
+vector<int> stm.RightWall.leadLayer2Course1 = {2,2,2};
+vector<int> stm.RightWall.leadLayer2Course2 = {2,2,2};
+vector<int> stm.RightWall.leadLayer2Course3 = {2,2,2};
+
+// ---- Layer 5: the copper sheet ------------------------------------
+string stm.RightWall.copperSheet.material = "G4_Cu";
+double stm.RightWall.copperSheet.dx = 12.700;  // 0.5 in, thickness
+double stm.RightWall.copperSheet.dy = 150.400; // as measured, slightly shy of 6 in
+double stm.RightWall.copperSheet.dz = 596.900; // 23.5 in
+double stm.RightWall.copperSheet.bottomToBase = 152.400;  // 6 in
+double stm.RightWall.copperSheet.fromRefZ     =  12.700;  // 0.5 in, thickness of the frontShieldingRight CopperLining
+
+
+// ---- Left wall -----------------------------------------------------
+//
+// The wall along -x, the mirror of the right wall. The same five kinds
+// of layer -- poly pair, lead, poly pair, lead, copper -- and the same
+// sheet shapes, but no L-shaped edge piece: 26 pieces.
+//
+// Everything is keyed to one reference, which is
+//
+//   - refFromBrickEndX in x, the -x face of the OUTERMOST layer,
+//   - the baseplate in y, and
+//   - the same z as the right wall, so the two start together.
+//
+// Layers are listed outside to inside and walk +x from there, so every
+// piece is on the same side of the reference and a layer's own
+// thickness is what separates it from the next. The four layers ahead
+// of the copper come to 1 + 2 + 1 + 2 = 6 in, which is why the
+// reference sits 6 in outboard of the innermost lead layer's +x face.
+//
+// In z every piece here starts at the reference: the sheets and both
+// lead layers all run the same 24 in, and the copper the same way but
+// only 111.2 mm. None of them needs a z offset of its own.
+bool   stm.LeftWall.build = true;
+
+double stm.LeftWall.refFromBrickEndX = -1092.200;  // -43 in
+
+// The same borated grade as the rest of the house.
+string stm.LeftWall.BPmaterial = "Polyethylene092B050d095";
+
+// Layer sequence, read outside to inside, walking +x.
+int    stm.LeftWall.layerN = 5;
+string stm.LeftWall.layer1 = "BP";  // longwall + top edge, outermost
+string stm.LeftWall.layer2 = "Pb";  // 4 courses of 3
+string stm.LeftWall.layer3 = "BP";  // longwall + top edge
+string stm.LeftWall.layer4 = "Pb";  // 3 courses of 3
+string stm.LeftWall.layer5 = "Cu";  // innermost, nearest the beam
+
+// ---- The lead layers ----------------------------------------------
+//
+// Courses run along z from the reference and stack up from the
+// baseplate, as in the right wall, and the bricks lie the same way:
+// 8 in along z, 4 in up y, 2 in the layer thickness in x.
+string stm.LeftWall.brickOrientation = "010";
+
+// The outer layer, one course taller than the inner one.
+int stm.LeftWall.leadLayer1CourseN = 4;
+vector<int> stm.LeftWall.leadLayer1Course1 = {2,2,2};
+vector<int> stm.LeftWall.leadLayer1Course2 = {2,2,2};
+vector<int> stm.LeftWall.leadLayer1Course3 = {2,2,2};
+vector<int> stm.LeftWall.leadLayer1Course4 = {2,2,2};
+
+// The inner layer, nearest the beam: a 3 x 3 grid.
+int stm.LeftWall.leadLayer2CourseN = 3;
+vector<int> stm.LeftWall.leadLayer2Course1 = {2,2,2};
+vector<int> stm.LeftWall.leadLayer2Course2 = {2,2,2};
+vector<int> stm.LeftWall.leadLayer2Course3 = {2,2,2};
+
+// ---- The poly pairs ------------------------------------------------
+//
+// Both pairs are the same two shapes as the right wall's inner pair --
+// a longwall standing on the baseplate and a top edge above it, meeting
+// with no gap -- so the dimensions are repeated here rather than
+// shared, keeping each wall's description self-contained.
+double stm.LeftWall.longwallPoly.dx = 25.400;  //  1 in, thickness
+double stm.LeftWall.longwallPoly.dy = 254.000; // 10 in
+double stm.LeftWall.longwallPoly.dz = 609.600; // 24 in
+double stm.LeftWall.longwallPoly.bottomToBase = 0.000;
+
+double stm.LeftWall.topEdgePoly.dx = 25.400;   // 1 in, thickness
+double stm.LeftWall.topEdgePoly.dy = 152.400;  // 6 in
+double stm.LeftWall.topEdgePoly.dz = 609.600;  // 24 in
+double stm.LeftWall.topEdgePoly.bottomToBase = 254.000;
+
+// ---- The copper sheet ----------------------------------------------
+//
+// Sits 6.5 in above the baseplate. Shorter than the rest in
+// z, sharing only their starting end.
+string stm.LeftWall.copperSheet.material = "G4_Cu";
+double stm.LeftWall.copperSheet.dx =  12.700;  // 0.5 in, thickness
+double stm.LeftWall.copperSheet.dy = 137.700;  // as measured, slight shy of 5.5 in
+double stm.LeftWall.copperSheet.dz = 111.200;
+double stm.LeftWall.copperSheet.bottomToBase = 165.100;  // 6.5 in
+// The copper sheet's +z end is flush with the right wall's copper sheet's +z end.
+// Not separately specified here.
+
+
+// ---- Top wall ------------------------------------------------------
+//
+// The roof, three layers worked DOWNWARD in -y from the top of the
+// stack: a pair of borated poly sheets, a layer of lead bricks laid
+// flat, and a pair of aluminium plates. 29 pieces.
+//
+// Everything is keyed to one reference, which is
+//
+//   - 3 in inboard of the right wall's reference in x,
+//   - the right wall's reference z, which is this wall's -z end, so
+//     the layers run +z from it, and
+//   - the TOP of the stack in y, so the layers hang below it.
+//
+// The height is built from the aluminium upward: wallToBase is the
+// underside of the plates, and the reference sits the three layers'
+// own thickness above that,
+//
+//     refY = baseplate + wallToBase + (0.75 + 2 + 1) in
+//
+// so thickening a layer lifts the roof rather than driving the
+// aluminium down into the wall below.
+bool   stm.TopWall.build = true;
+
+double stm.TopWall.refFromRightWallX = -76.200;  // -3 in
+double stm.TopWall.wallToBase        = 304.800;  // 12 in, to the plates' underside
+
+// The same borated grade as the rest of the house.
+string stm.TopWall.BPmaterial = "Polyethylene092B050d095";
+
+// Layer sequence, read from the reference downward in -y.
+int    stm.TopWall.layerN = 3;
+string stm.TopWall.layer1 = "BP";  // two sheets, side by side in x
+string stm.TopWall.layer2 = "Pb";  // five columns laid flat
+string stm.TopWall.layer3 = "Al";  // two plates, side by side in z
+
+// ---- Layer 1: the borated poly sheets ------------------------------
+//
+// Two sheets side by side in x, sharing the reference's z end. The
+// second is shorter, starting 3 in along z from it.
+double stm.TopWall.polySheet1.dx = 504.000;  // as measured, just under 20 in
+double stm.TopWall.polySheet1.dy =  25.400;  //  1 in, thickness
+double stm.TopWall.polySheet1.dz = 609.600;  // 24 in
+
+double stm.TopWall.polySheet2.dx = 409.500;  // as measured, just over 16 in
+double stm.TopWall.polySheet2.dy =  25.400;  // 1 in, thickness
+double stm.TopWall.polySheet2.dz = 532.100;  // as measured, just under 21 in
+double stm.TopWall.polySheet2.fromRefZ = 76.200;  // 3 in
+
+// ---- Layer 2: the lead bricks --------------------------------------
+//
+// Five columns side by side in x, each a list of stm.leadBrick types
+// running along z from the reference. The bricks lie FLAT -- 2 in is
+// the layer thickness in y -- so the first column takes its 4 in width
+// in x and its 8 in along z, and the rest take 8 in in x and 4 in
+// along z. Two orientations, given per column.
+//
+// The last two columns start 3 in along z from the reference, so they
+// run 20 in where the first three run 24 in.
+int stm.TopWall.brickColumnN = 5;
+
+vector<int> stm.TopWall.brickColumn1 = {2,2,2};        // 4 in wide, 3 x 8 in
+vector<int> stm.TopWall.brickColumn2 = {2,2,2,2,2,2};  // 8 in wide, 6 x 4 in
+vector<int> stm.TopWall.brickColumn3 = {2,2,2,2,2,2};
+vector<int> stm.TopWall.brickColumn4 = {2,2,2,2,2};    // 5 x 4 in, offset
+vector<int> stm.TopWall.brickColumn5 = {2,2,2,2,2};
+
+// The first column runs its 8 in along z, the rest their 4 in.
+string stm.TopWall.brickColumn1Orientation = "110";
+string stm.TopWall.brickColumn2Orientation = "100";
+string stm.TopWall.brickColumn3Orientation = "100";
+string stm.TopWall.brickColumn4Orientation = "100";
+string stm.TopWall.brickColumn5Orientation = "100";
+
+double stm.TopWall.brickColumn1FromRefZ = 0.000;
+double stm.TopWall.brickColumn2FromRefZ = 0.000;
+double stm.TopWall.brickColumn3FromRefZ = 0.000;
+double stm.TopWall.brickColumn4FromRefZ = 76.200;  // 3 in
+double stm.TopWall.brickColumn5FromRefZ = 76.200;  // 3 in
+
+// ---- Layer 3: the aluminium plates ---------------------------------
+//
+// Two identical plates side by side in z, together spanning 25 in.
+string stm.TopWall.plate.material = "G4_Al";
+double stm.TopWall.plate.dx = 914.600;  // 36 in
+double stm.TopWall.plate.dy =  19.050;  // 0.75 in, thickness
+double stm.TopWall.plate.dz = 317.500;  // 12.5 in
+int    stm.TopWall.plateN   = 2;
+
+
+// ---- Bottom wall ---------------------------------------------------
+//
+// The floor, including the steel baseplate the whole house stands on.
+// The baseplate did not appear in the earlier shield house; it is part
+// of this section now.
+//
+// Above it, five layers worked UPWARD in +y: a borated poly prism, a
+// lead layer, the same poly prism again, a second lead layer, and two
+// copper prisms. 46 pieces.
+//
+// Everything is keyed to one reference, which is
+//
+//   - 5 in inboard of the house reference in x, where the poly prism
+//     and both lead layers have their +x face,
+//   - the house reference z, so the floor starts where the walls do
+//     and runs +z downstream with them,
+//   - the TOP of the baseplate in y, which is stm.STM_SSC.boreToBase
+//     below the bore -- the same datum every wall stands on.
+bool   stm.BottomWall.build = true;
+
+double stm.BottomWall.refFromHouseX = -127.000;  // -5 in
+
+// ---- The baseplate -------------------------------------------------
+//
+// Constrained in y by boreToBase: its TOP is that datum, so the plate
+// hangs below it and its centre is half a thickness down.
+//
+// The plate is larger than the house and overhangs it on every side,
+// reaching 12.5 in upstream of the reference, so its CENTRE is given
+// rather than an edge. dx, dy and dz are all clean imperial.
+string stm.BottomWall.basePlate.material = "MildSteel";
+double stm.BottomWall.basePlate.dx = 1435.100;  // 56.5 in
+double stm.BottomWall.basePlate.dy =   25.400;  //  1   in, thickness
+double stm.BottomWall.basePlate.dz =  927.100;  // 36.5 in
+double stm.BottomWall.basePlate.centreFromRefX = -485.729;  // as measured
+double stm.BottomWall.basePlate.centreFromRefZ =  146.050;  // 5.75 in
+// Its centre in y is -dy/2 from the reference, so it is not stated.
+
+// All the poly here is the same borated grade as the rest of the house.
+string stm.BottomWall.BPmaterial = "Polyethylene092B050d095";
+
+// Layer sequence, read from the baseplate upward in +y.
+int    stm.BottomWall.layerN = 5;
+string stm.BottomWall.layer1 = "BP";  // the poly prism
+string stm.BottomWall.layer2 = "Pb";  // 21 bricks, five of them strays
+string stm.BottomWall.layer3 = "BP";  // the same prism again
+string stm.BottomWall.layer4 = "Pb";  // 21 bricks, one of them a stray
+string stm.BottomWall.layer5 = "Cu";  // two copper prisms
+
+// ---- The poly prism ------------------------------------------------
+//
+// An L in the x-z plane swept 1 in along y, used for layers 1 and 3.
+// The cap's origin sits at the reference and the anchor half a sweep
+// above it, since an extruded solid is centred on its placement point.
+double stm.BottomWall.polyPrism.thickness = 25.400;  // 1 in, along y
+vector<double> stm.BottomWall.polyPrism.UVerts =
+  {0.0,   0.0, -812.8, -812.8, -406.4, -406.4};
+vector<double> stm.BottomWall.polyPrism.VVerts =
+  {0.0, 609.6,  609.6,   76.2,   76.2,    0.0};
+string stm.BottomWall.polyPrism.orientation = "100";
+
+// ---- The lead layers -----------------------------------------------
+//
+// Columns pitching along -x from the reference, each a list of
+// stm.leadBrick types running along z. The columns butt one another, so
+// only their z start is given; the x follows from the widths.
+//
+// The columns are not all the same width, so each states its own
+// orientation: a 4 in column turns its 8 in onto z, an 8 in column
+// turns its 4 in onto z.
+
+// Layer 2: six columns and five strays.
+int stm.BottomWall.leadLayer1ColumnN = 6;
+vector<int> stm.BottomWall.leadLayer1Column1 = {2,2};      // 4 in wide
+vector<int> stm.BottomWall.leadLayer1Column2 = {2,2,2,2};  // 8 in wide
+vector<int> stm.BottomWall.leadLayer1Column3 = {2,2};      // 4 in
+vector<int> stm.BottomWall.leadLayer1Column4 = {2,2};      // 4 in
+vector<int> stm.BottomWall.leadLayer1Column5 = {2,2,2,2};  // 8 in
+vector<int> stm.BottomWall.leadLayer1Column6 = {2,2};      // 4 in
+
+string stm.BottomWall.leadLayer1Column1Orientation = "110";
+string stm.BottomWall.leadLayer1Column2Orientation = "100";
+string stm.BottomWall.leadLayer1Column3Orientation = "110";
+string stm.BottomWall.leadLayer1Column4Orientation = "110";
+string stm.BottomWall.leadLayer1Column5Orientation = "100";
+string stm.BottomWall.leadLayer1Column6Orientation = "110";
+
+double stm.BottomWall.leadLayer1Column1FromRefZ = 101.600;  // 4 in
+double stm.BottomWall.leadLayer1Column2FromRefZ = 101.600;  // 4 in
+double stm.BottomWall.leadLayer1Column3FromRefZ = 101.600;  // 4 in
+double stm.BottomWall.leadLayer1Column4FromRefZ =  76.200;  // 3 in
+double stm.BottomWall.leadLayer1Column5FromRefZ =  76.200;  // 3 in
+double stm.BottomWall.leadLayer1Column6FromRefZ =  76.200;  // 3 in
+
+// The bricks that break the column pattern, one per line as
+//
+//     {type, orientation, centreFromRefX, centreFromRefZ}
+//
+// where type indexes stm.leadBrick.type<n>, orientation is the
+// three-digit code written WITHOUT quotes since the list is numeric,
+// and the two offsets place the brick's CENTRE relative to the bottom
+// wall reference.
+int stm.BottomWall.leadLayer1ExtraN = 5;
+vector<double> stm.BottomWall.leadLayer1Extra1 = {1, 100, -203.200,  50.800};  //  -8 in,  2 in
+vector<double> stm.BottomWall.leadLayer1Extra2 = {2, 100, -101.600, 558.800};  //  -4 in, 22 in
+vector<double> stm.BottomWall.leadLayer1Extra3 = {2, 100, -304.800, 558.800};  // -12 in, 22 in
+vector<double> stm.BottomWall.leadLayer1Extra4 = {2, 100, -508.000, 533.400};  // -20 in, 21 in
+vector<double> stm.BottomWall.leadLayer1Extra5 = {2, 100, -711.200, 533.400};  // -28 in, 21 in
+
+// Layer 4: four 8 in columns of five, plus the one 16 in brick.
+int stm.BottomWall.leadLayer2ColumnN = 4;
+vector<int> stm.BottomWall.leadLayer2Column1 = {2,2,2,2,2};
+vector<int> stm.BottomWall.leadLayer2Column2 = {2,2,2,2,2};
+vector<int> stm.BottomWall.leadLayer2Column3 = {2,2,2,2,2};
+vector<int> stm.BottomWall.leadLayer2Column4 = {2,2,2,2,2};
+
+string stm.BottomWall.leadLayer2Column1Orientation = "100";
+string stm.BottomWall.leadLayer2Column2Orientation = "100";
+string stm.BottomWall.leadLayer2Column3Orientation = "100";
+string stm.BottomWall.leadLayer2Column4Orientation = "100";
+
+double stm.BottomWall.leadLayer2Column1FromRefZ = 101.600;  // 4 in
+double stm.BottomWall.leadLayer2Column2FromRefZ = 101.600;  // 4 in
+double stm.BottomWall.leadLayer2Column3FromRefZ =  76.200;  // 3 in
+double stm.BottomWall.leadLayer2Column4FromRefZ =  76.200;  // 3 in
+
+// Same {type, orientation, centreFromRefX, centreFromRefZ} form.
+int stm.BottomWall.leadLayer2ExtraN = 1;
+vector<double> stm.BottomWall.leadLayer2Extra1 = {1, 100, -203.200, 50.800};  // -8 in, 2 in
+
+// ---- Layer 5: the two copper prisms --------------------------------
+//
+// Both are swept 0.5 in along y and turned "100". Each is placed by an
+// ANCHOR on its cap origin, and since the sweep is centred on that
+// point the anchor's y is the mid-plane of the 0.5 in -- 6.25 in above
+// the baseplate, the pieces themselves spanning 6.0 to 6.5 in.
+//
+// Unlike the lead and the poly, these sit half an inch further inboard
+// than the reference.
+string stm.BottomWall.copperPrism.material     = "G4_Cu";
+double stm.BottomWall.copperPrism.thickness    = 12.700;  // 0.5 in, along y
+string stm.BottomWall.copperPrism.orientation  = "100";
+double stm.BottomWall.copperPrism.anchorToBase = 158.750;  // 6.25 in
+
+// The larger one, starting at the house reference end in z.
+vector<double> stm.BottomWall.copperPrism1.UVerts =
+  {0.0,   0.0, -152.4, -419.42, -419.42, -800.1, -800.1, -272.59};
+vector<double> stm.BottomWall.copperPrism1.VVerts =
+  {0.0, 170.3,  170.3,  437.32,   609.6,  609.6, 527.51,     0.0};
+double stm.BottomWall.copperPrism1.fromRefX = -12.700;  // -0.5 in
+double stm.BottomWall.copperPrism1.fromRefZ =   0.000;
+
+// The smaller one, 24 in further along z.
+vector<double> stm.BottomWall.copperPrism2.UVerts =
+  {0.0,    0.0, -203.2,  -203.2,  -235.4,  -235.4, -203.2, -203.2};
+vector<double> stm.BottomWall.copperPrism2.VVerts =
+  {0.0, -331.6, -331.6, -208.19, -208.19, -106.69, -106.69,    0.0};
+double stm.BottomWall.copperPrism2.fromRefX = -12.700;  // -0.5 in
+double stm.BottomWall.copperPrism2.fromRefZ = 609.600;  // 24 in
 
 
 // This tells emacs to view this file in c++ mode

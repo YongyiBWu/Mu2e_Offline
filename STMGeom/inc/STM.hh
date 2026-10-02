@@ -23,6 +23,10 @@
 #include "Offline/STMGeom/inc/SSCFrontShield.hh"
 #include "Offline/STMGeom/inc/FrontShieldingRight.hh"
 #include "Offline/STMGeom/inc/FrontShieldingLeft.hh"
+#include "Offline/STMGeom/inc/RightWall.hh"
+#include "Offline/STMGeom/inc/LeftWall.hh"
+#include "Offline/STMGeom/inc/TopWall.hh"
+#include "Offline/STMGeom/inc/BottomWall.hh"
 #include "Offline/STMGeom/inc/HPGeDetector.hh"
 #include "Offline/STMGeom/inc/LaBrDetector.hh"
 #include "Offline/STMGeom/inc/FrontShielding.hh"
@@ -70,6 +74,10 @@ namespace mu2e {
     SSCFrontShield   const * getSSCFrontShieldPtr()          const { return _pSSCFrontShieldParams.get(); }
     FrontShieldingRight const * getFrontShieldingRightPtr()  const { return _pFrontShieldingRightParams.get(); }
     FrontShieldingLeft  const * getFrontShieldingLeftPtr()   const { return _pFrontShieldingLeftParams.get(); }
+    RightWall           const * getRightWallPtr()            const { return _pRightWallParams.get(); }
+    LeftWall            const * getLeftWallPtr()             const { return _pLeftWallParams.get(); }
+    TopWall             const * getTopWallPtr()              const { return _pTopWallParams.get(); }
+    BottomWall          const * getBottomWallPtr()           const { return _pBottomWallParams.get(); }
 
     HPGeDetector     const * getHPGeDetectorPtr()            const { return _pSTMHPGeDetectorParams.get(); }
     LaBrDetector     const * getLaBrDetectorPtr()            const { return _pSTMLaBrDetectorParams.get(); }
@@ -116,6 +124,10 @@ namespace mu2e {
     std::unique_ptr<SSCFrontShield>   _pSSCFrontShieldParams;
     std::unique_ptr<FrontShieldingRight> _pFrontShieldingRightParams;
     std::unique_ptr<FrontShieldingLeft>  _pFrontShieldingLeftParams;
+    std::unique_ptr<RightWall>           _pRightWallParams;
+    std::unique_ptr<LeftWall>            _pLeftWallParams;
+    std::unique_ptr<TopWall>             _pTopWallParams;
+    std::unique_ptr<BottomWall>          _pBottomWallParams;
 
     std::unique_ptr<HPGeDetector>     _pSTMHPGeDetectorParams;
     std::unique_ptr<LaBrDetector>     _pSTMLaBrDetectorParams;

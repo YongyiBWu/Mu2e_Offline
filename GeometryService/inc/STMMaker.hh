@@ -17,6 +17,10 @@
 #include "Offline/STMGeom/inc/BrickWall.hh"
 #include "Offline/STMGeom/inc/FrontShieldingRight.hh"
 #include "Offline/STMGeom/inc/FrontShieldingLeft.hh"
+#include "Offline/STMGeom/inc/RightWall.hh"
+#include "Offline/STMGeom/inc/LeftWall.hh"
+#include "Offline/STMGeom/inc/TopWall.hh"
+#include "Offline/STMGeom/inc/BottomWall.hh"
 
 namespace mu2e {
 
@@ -311,6 +315,21 @@ namespace mu2e {
     FrontShieldingRightPlate              _FrontShieldingRightPlate;
     double      _FrontShieldingRightBackZ;
 
+    // Landmarks of the front shielding that later sections butt
+    // against. Resolved where the section is expanded and kept so a
+    // wall downstream need not re-derive them from the layer sequence.
+    double      _FrontShieldingRightBrickEndX;
+    double      _FrontShieldingRightFrontZ;
+    double      _FrontShieldingRightLastLeadBackZ;
+
+    // The shield house's reference corner, where the walls meet the
+    // front shielding. Resolved once before any wall is expanded, so
+    // the right, left and top walls all key off the same point rather
+    // than each re-deriving it -- and so none of them has to read
+    // another wall's configuration keys.
+    double      _ShieldHouseRefX;
+    double      _ShieldHouseRefZ;
+
     // Front shielding, left. Nothing here is bored and nothing
     // interleaves, so it is three brick groups, four sheets and the
     // prism, all keyed off the right half.
@@ -318,6 +337,30 @@ namespace mu2e {
     std::vector<FrontShieldingLeftSheet>  _FrontShieldingLeftSheets;
     std::vector<BrickWall>                _FrontShieldingLeftBrickGroups;
     FrontShieldingLeftPrism               _FrontShieldingLeftPrism;
+
+    // Right wall. Five layers worked inward from the reference vertex,
+    // expanded in parseConfig so what is held here is already placed.
+    bool        _RightWallBuild;
+    std::vector<BrickWall>       _RightWallLeadLayers;
+    std::vector<RightWallSheet>  _RightWallSheets;
+    RightWallEdgePrism           _RightWallEdgePrism;
+
+    // Left wall. The same five kinds of layer, without the edge prism.
+    bool        _LeftWallBuild;
+    std::vector<BrickWall>      _LeftWallLeadLayers;
+    std::vector<LeftWallSheet>  _LeftWallSheets;
+
+    // Top wall. One lead layer laid flat between two pairs of plates.
+    bool        _TopWallBuild;
+    std::vector<BrickWall>     _TopWallLeadLayers;
+    std::vector<TopWallSheet>  _TopWallSheets;
+
+    // Bottom wall. The baseplate plus two lead layers and four swept
+    // prisms; each lead layer holds its columns and its strays.
+    bool        _BottomWallBuild;
+    BottomWallPlate               _BottomWallPlate;
+    std::vector<BrickWall>        _BottomWallLeadLayers;
+    std::vector<BottomWallPrism>  _BottomWallPrisms;
 
     bool    _FrontShieldingBuild;
     double  _FrontSHeightofRoom;
