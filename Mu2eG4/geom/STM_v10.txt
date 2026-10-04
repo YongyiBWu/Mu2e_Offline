@@ -22,7 +22,8 @@ bool stm.downstream.handstacked = true;
 //
 // Standard lead bricks, the building block for most of the shield
 // house. Named by size in inches, since other sizes may be added.
-// Both are exact imperial in the CAD.
+// All are exact imperial in the CAD, and all share the 2 in
+// thickness, which is why the names share that prefix.
 //
 // wear shrinks a brick by this much on each face, so it becomes
 // (dx - 2*wear, dy - 2*wear, dz - 2*wear) while staying centred where
@@ -36,8 +37,22 @@ double stm.leadBrick.2x4x16.dx = 406.400;  // 16 in
 double stm.leadBrick.2x4x16.dy = 101.600;  //  4 in
 double stm.leadBrick.2x4x16.dz =  50.800;  //  2 in
 
+double stm.leadBrick.2x4x4.dx  = 101.600;  //  4 in
+double stm.leadBrick.2x4x4.dy  = 101.600;  //  4 in
+double stm.leadBrick.2x4x4.dz  =  50.800;  //  2 in
+
 string stm.leadBrick.material  = "G4_Pb";
-double stm.leadBrick.wear      = 0.0;
+
+// Wear, taken off each face so a brick shrinks while staying centred
+// where it was placed: a stack keeps its nominal pitch and the wear
+// opens as gaps between bricks.
+//
+// Applied per face, so the gap between two abutting bricks is twice
+// the value. Split so that the vertical direction can differ from the
+// other two: wearY goes on whichever of the brick's own axes ends up
+// vertical once it is turned.
+double stm.leadBrick.wearY  = 0.1;
+double stm.leadBrick.wearXZ = 0.8;
 
 // Brick types, numbered so that a course anywhere in the shield house
 // can be written as a list of types. A type is a SHAPE only:
@@ -48,9 +63,10 @@ double stm.leadBrick.wear      = 0.0;
 //
 // A new size is therefore a new type and leaves existing course lists
 // untouched.
-int    stm.leadBrick.typeN = 2;
+int    stm.leadBrick.typeN = 3;
 string stm.leadBrick.type1 = "2x4x16";
 string stm.leadBrick.type2 = "2x4x8";
+string stm.leadBrick.type3 = "2x4x4";
 
 
 // ---- Spot-Size Collimator ----------------------------------------
@@ -350,7 +366,9 @@ string stm.FrontShieldingRight.layer5 = "Pb";
 // layer 1 with every course reversed, which is what breaks the joints
 // between layers; layer 3 repeats layer 1.
 vector<int> stm.FrontShieldingRight.leadLayer1Course1 = {1,2};
-vector<int> stm.FrontShieldingRight.leadLayer1Course2 = {2,1};
+// The course the beam passes through. A 4 in brick at each end leaves
+// the 16 in one centred, so both bores sit well inside it.
+vector<int> stm.FrontShieldingRight.leadLayer1Course2 = {3,1,3};
 vector<int> stm.FrontShieldingRight.leadLayer1Course3 = {1,2};
 vector<int> stm.FrontShieldingRight.leadLayer1Course4 = {2,1};
 
@@ -653,8 +671,10 @@ string stm.RightWall.brickOrientation = "010";
 
 int stm.RightWall.leadLayer1CourseN = 4;
 vector<int> stm.RightWall.leadLayer1Course1 = {2,2,2};
-vector<int> stm.RightWall.leadLayer1Course2 = {2,2,2};
-vector<int> stm.RightWall.leadLayer1Course3 = {2,2,2};
+// The middle two courses break the joints of the ones above and below
+// by starting and ending with a 4 in brick; each still totals 24 in.
+vector<int> stm.RightWall.leadLayer1Course2 = {3,2,2,3};
+vector<int> stm.RightWall.leadLayer1Course3 = {3,2,2,3};
 vector<int> stm.RightWall.leadLayer1Course4 = {2,2,2};
 
 // ---- Layer 3: the inner poly pair ---------------------------------
@@ -737,8 +757,10 @@ string stm.LeftWall.brickOrientation = "010";
 // The outer layer, one course taller than the inner one.
 int stm.LeftWall.leadLayer1CourseN = 4;
 vector<int> stm.LeftWall.leadLayer1Course1 = {2,2,2};
-vector<int> stm.LeftWall.leadLayer1Course2 = {2,2,2};
-vector<int> stm.LeftWall.leadLayer1Course3 = {2,2,2};
+// The middle two courses break the joints of the ones above and below
+// by starting and ending with a 4 in brick; each still totals 24 in.
+vector<int> stm.LeftWall.leadLayer1Course2 = {3,2,2,3};
+vector<int> stm.LeftWall.leadLayer1Course3 = {3,2,2,3};
 vector<int> stm.LeftWall.leadLayer1Course4 = {2,2,2};
 
 // The inner layer, nearest the beam: a 3 x 3 grid.
@@ -1024,6 +1046,190 @@ vector<double> stm.BottomWall.copperPrism2.VVerts =
   {0.0, -331.6, -331.6, -208.19, -208.19, -106.69, -106.69,    0.0};
 double stm.BottomWall.copperPrism2.fromRefX = -12.700;  // -0.5 in
 double stm.BottomWall.copperPrism2.fromRefZ = 609.600;  // 24 in
+
+
+// ---- Inner shielding -----------------------------------------------
+//
+// What lines the cavity the detectors sit in: six copper pieces and
+// eleven lead ones, 17 in all. The copper is named lining*, the lead
+// lead*.
+//
+// The reference is the bottom wall's, moved in 0.5 in and up 6 in --
+// directly above the origin of that wall's first copper prism, and
+// level with the top of its lead. It is tied back to the shield house
+// reference when resolved, so moving the house moves this with it.
+//
+// Four of the lining pieces are prisms and two are plain boxes. Each
+// prism's cap is traced from the vertex nearest the reference so its
+// local origin is the corner the placement pins; all are swept along y.
+//
+// Only the left slanted piece starts at the reference height; the other
+// five start 0.5 in above it. All are 6 in tall or slightly less once
+// that offset is counted.
+//
+// Offsets below are the piece's own local origin from the reference,
+// and the z values run +z downstream as everywhere else in the house.
+bool   stm.InnerShielding.build = true;
+
+double stm.InnerShielding.refFromBottomWallX = -12.700;  // -0.5 in
+double stm.InnerShielding.refFromBottomWallY = 152.400;  //  6 in
+
+// ---- The copper lining ---------------------------------------------
+string stm.InnerShielding.lining.material = "G4_Cu";
+
+// The step that all but the left slanted piece start at.
+double stm.InnerShielding.lining.stepUp = 12.700;  // 0.5 in
+
+// The left slanted piece: the one that starts at the reference height.
+// Its outline lies mostly in the third quadrant.
+double stm.InnerShielding.liningLeftSlanted.height = 150.400;  // as measured, just under 6 in
+vector<double> stm.InnerShielding.liningLeftSlanted.UVerts =
+  {0.0, -502.1100, -502.1100, -17.9605};
+vector<double> stm.InnerShielding.liningLeftSlanted.VVerts =
+  {0.0,  502.1100,  484.1495,   0.0000};
+string stm.InnerShielding.liningLeftSlanted.orientation = "100";
+double stm.InnerShielding.liningLeftSlanted.fromRefX = -285.2900;  // -272.59 - 12.7
+double stm.InnerShielding.liningLeftSlanted.fromRefZ =   12.7000;
+
+// The remaining five, all 0.5 in up from the reference. These are
+// pinned at the mid-plane of their own height, since an extruded solid
+// is centred on its placement point.
+double stm.InnerShielding.lining.height = 137.700;  // as measured, just under 5.5 in
+
+// The mid left wall: a 0.5 in plate on edge, one corner clipped.
+vector<double> stm.InnerShielding.liningMidLeftWall.UVerts =
+  {0.0,   0.0000, -12.7000, -12.7000};
+vector<double> stm.InnerShielding.liningMidLeftWall.VVerts =
+  {0.0, 190.2405, 190.2405,  12.7000};
+string stm.InnerShielding.liningMidLeftWall.orientation = "100";
+double stm.InnerShielding.liningMidLeftWall.fromRefX = -419.4200;
+double stm.InnerShielding.liningMidLeftWall.fromRefZ =  419.3595;  // 437.32 - 17.9605
+
+// The middle slanted piece, whose long faces run at 45 degrees.
+vector<double> stm.InnerShielding.liningMidSlanted.UVerts =
+  {0.0, -279.7200, -279.9200, -17.9605};
+vector<double> stm.InnerShielding.liningMidSlanted.VVerts =
+  {0.0,  279.7200,  261.7595,   0.0000};
+string stm.InnerShielding.liningMidSlanted.orientation = "100";
+double stm.InnerShielding.liningMidSlanted.fromRefX = -139.7000;
+double stm.InnerShielding.liningMidSlanted.fromRefZ =  157.6000;
+
+// The back piece. Bored on the LaBr axis, so it names that bore rather
+// than stating a hole of its own.
+vector<double> stm.InnerShielding.liningMidBack.UVerts =
+  {0.0,  0.0000, -150.4260, -137.7260};
+vector<double> stm.InnerShielding.liningMidBack.VVerts =
+  {0.0, 12.7000,   12.7000,    0.0000};
+string stm.InnerShielding.liningMidBack.orientation = "100";
+double stm.InnerShielding.liningMidBack.fromRefX =  -1.9740;
+double stm.InnerShielding.liningMidBack.fromRefZ = 157.6000;
+bool   stm.InnerShielding.liningMidBack.bored = true;
+
+// The two boxes. The right one is plain, the back one bored on the
+// LaBr axis like the prism above. Both share the lining height.
+double stm.InnerShielding.liningMidRight.dx =  12.700;  // 0.5 in, thickness
+double stm.InnerShielding.liningMidRight.dz = 324.800;
+double stm.InnerShielding.liningMidRight.centreFromRefX = -196.850;  // -7.75 in
+double stm.InnerShielding.liningMidRight.centreFromRefZ =  447.000;
+
+double stm.InnerShielding.liningMidBackBox.dx = 201.075;
+double stm.InnerShielding.liningMidBackBox.dz =  12.700;  // 0.5 in, thickness
+double stm.InnerShielding.liningMidBackBox.centreFromRefX = -100.540;
+double stm.InnerShielding.liningMidBackBox.centreFromRefZ =  278.250;
+bool   stm.InnerShielding.liningMidBackBox.bored = true;
+
+// ---- The lead ------------------------------------------------------
+//
+// Three plain 8x4x2 bricks from stm.leadBrick, three boxes stated on
+// their own because they are turned 45 degrees about y, a triangular
+// prism, a bored trapezoid, a bored brick, and two prisms whose bases
+// are 8x4 rectangles with a 2 in corner cut away.
+
+// The three bricks that lie square, as
+// {type, orientation, centreFromRefX, centreFromRefY, centreFromRefZ}.
+int stm.InnerShielding.leadBrickN = 3;
+vector<double> stm.InnerShielding.leadBrick1 = {2, 100, -304.800, 127.000, 559.2682};
+vector<double> stm.InnerShielding.leadBrick2 = {2,   0, -304.800,  50.800, 584.6682};
+vector<double> stm.InnerShielding.leadBrick3 = {2,   0, -304.800,  50.800, 533.8682};
+
+// The three turned 45 degrees about y. Stated as boxes rather than as
+// leadBrick types: the 45 degree code is a special case in
+// OrientationResolver that cannot follow a 90 degree step, so each box
+// is declared in the axes that single rotation needs.
+//
+// The sizes below are nominal. Turned 45 degrees these might touch the
+// volumes around them, so the construction code shrinks each by its
+// shared nudge rather than the sizes being written out already shrunk.
+string stm.InnerShielding.leadAngledBox.orientation = "040";
+
+double stm.InnerShielding.leadAngledBox1.dx =  50.800;  // 2 in
+double stm.InnerShielding.leadAngledBox1.dy = 101.600;  // 4 in
+double stm.InnerShielding.leadAngledBox1.dz = 203.200;  // 8 in
+double stm.InnerShielding.leadAngledBox1.centreFromRefX = -328.9236;
+double stm.InnerShielding.leadAngledBox1.centreFromRefY =  101.6000;
+double stm.InnerShielding.leadAngledBox1.centreFromRefZ =  382.7446;
+
+double stm.InnerShielding.leadAngledBox2.dx = 101.600;  // 4 in
+double stm.InnerShielding.leadAngledBox2.dy =  50.800;  // 2 in
+double stm.InnerShielding.leadAngledBox2.dz = 203.200;  // 8 in
+double stm.InnerShielding.leadAngledBox2.centreFromRefX = -310.9631;
+double stm.InnerShielding.leadAngledBox2.centreFromRefY =   25.4000;
+double stm.InnerShielding.leadAngledBox2.centreFromRefZ =  400.7051;
+
+double stm.InnerShielding.leadAngledBox3.dx =  50.800;  // 2 in
+double stm.InnerShielding.leadAngledBox3.dy = 101.600;  // 4 in
+double stm.InnerShielding.leadAngledBox3.dz = 203.200;  // 8 in
+double stm.InnerShielding.leadAngledBox3.centreFromRefX = -293.0026;
+double stm.InnerShielding.leadAngledBox3.centreFromRefY =  101.6000;
+double stm.InnerShielding.leadAngledBox3.centreFromRefZ =  418.6656;
+
+// The angled triangular prism.
+vector<double> stm.InnerShielding.leadAngled.UVerts = {0.0,   0.0000, -71.8400};
+vector<double> stm.InnerShielding.leadAngled.VVerts = {0.0, 143.6800,  71.8400};
+double stm.InnerShielding.leadAngled.length      = 152.400;  // 6 in
+string stm.InnerShielding.leadAngled.orientation = "100";
+double stm.InnerShielding.leadAngled.fromRefX = -203.200;  // -8 in
+double stm.InnerShielding.leadAngled.fromRefY =   76.200;  //  3 in
+double stm.InnerShielding.leadAngled.fromRefZ =  221.100;
+
+// The trapezoid, 8 in and 6 in bases 2 in apart, bored on the LaBr
+// axis. Its sweep is the 4 in height, and the anchor is at the
+// mid-plane of that sweep.
+vector<double> stm.InnerShielding.leadHoleCut.UVerts =
+  {0.0,    0.000, -203.200, -152.400};
+vector<double> stm.InnerShielding.leadHoleCut.VVerts =
+  {0.0,   50.800,   50.800,    0.000};
+double stm.InnerShielding.leadHoleCut.length      = 101.600;  // 4 in
+string stm.InnerShielding.leadHoleCut.orientation = "100";
+double stm.InnerShielding.leadHoleCut.fromRefX =   0.000;
+double stm.InnerShielding.leadHoleCut.fromRefY =  76.200;  // 1 in + dy/2 = 3 in
+double stm.InnerShielding.leadHoleCut.fromRefZ = 170.300;
+
+// The bored 8x4x2 brick on the LaBr axis.
+double stm.InnerShielding.leadLaBrHole.centreFromRefX = -101.600;  // -4 in
+double stm.InnerShielding.leadLaBrHole.centreFromRefY =   76.200;  //  3 in
+double stm.InnerShielding.leadLaBrHole.centreFromRefZ =  246.500;  // 170.3 + 3 in
+
+// The two clipped prisms, above and below the trapezoid. Each base is
+// an 8x4 rectangle with a 2 in corner cut away; both share one outline
+// and differ only in thickness and height.
+vector<double> stm.InnerShielding.leadClipped.UVerts =
+  {0.0,    0.000, -203.200, -203.200, -152.400};
+vector<double> stm.InnerShielding.leadClipped.VVerts =
+  {0.0,  101.600,  101.600,   50.800,    0.000};
+string stm.InnerShielding.leadClipped.orientation = "100";
+
+// The lower one, 1 in thick.
+double stm.InnerShielding.leadClipped1.length  =  25.400;  // 1 in
+double stm.InnerShielding.leadClipped1.fromRefX =   0.000;
+double stm.InnerShielding.leadClipped1.fromRefY =  12.700;  // 0.5 in
+double stm.InnerShielding.leadClipped1.fromRefZ = 170.300;
+
+// The upper one, as measured rather than round.
+double stm.InnerShielding.leadClipped2.length  =  23.400;
+double stm.InnerShielding.leadClipped2.fromRefX =   0.000;
+double stm.InnerShielding.leadClipped2.fromRefY = 138.700;  // 5 in + 23.4/2
+double stm.InnerShielding.leadClipped2.fromRefZ = 170.300;
 
 
 // This tells emacs to view this file in c++ mode

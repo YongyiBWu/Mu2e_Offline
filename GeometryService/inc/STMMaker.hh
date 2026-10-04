@@ -21,6 +21,7 @@
 #include "Offline/STMGeom/inc/LeftWall.hh"
 #include "Offline/STMGeom/inc/TopWall.hh"
 #include "Offline/STMGeom/inc/BottomWall.hh"
+#include "Offline/STMGeom/inc/InnerShielding.hh"
 
 namespace mu2e {
 
@@ -66,7 +67,8 @@ namespace mu2e {
     // member and a change to every caller.
     std::vector<std::string>       _leadBrickNames;
     std::vector<CLHEP::Hep3Vector> _leadBrickDims;
-    double      _leadBrickWear;
+    double      _leadBrickWearY;
+    double      _leadBrickWearXZ;
     std::string _leadBrickMaterial;
 
     double       _stmReferenceZ;
@@ -361,6 +363,12 @@ namespace mu2e {
     BottomWallPlate               _BottomWallPlate;
     std::vector<BrickWall>        _BottomWallLeadLayers;
     std::vector<BottomWallPrism>  _BottomWallPrisms;
+
+    // Inner shielding, updated. Not a stack of layers: every piece is
+    // placed on its own, so it is three lists rather than a sequence.
+    std::vector<InnerShieldingPrism>  _InnerShieldingPrisms;
+    std::vector<InnerShieldingBox>    _InnerShieldingBoxes;
+    std::vector<InnerShieldingBrick>  _InnerShieldingBricks;
 
     bool    _FrontShieldingBuild;
     double  _FrontSHeightofRoom;

@@ -95,7 +95,8 @@ namespace mu2e {
       stm._pLeadBrickParams = std::unique_ptr<LeadBrick>
               (new LeadBrick(_leadBrickNames,
                              _leadBrickDims,
-                             _leadBrickWear,
+                             _leadBrickWearY,
+                             _leadBrickWearXZ,
                              _leadBrickMaterial));
     }
 
@@ -777,8 +778,21 @@ namespace mu2e {
 
    ////////////////////////////////////////////////////////////////
    //STM Inner Shielding
+
+    if (_handstacked) {
+      // The updated lining: prisms, boxes and bricks, each already
+      // placed in parseConfig.
+          stm._pSTMInnerShieldingParams = std::unique_ptr<InnerShielding>
+          (new InnerShielding(_InnerShieldingBuild,
+                              _InnerShieldingPrisms,
+                              _InnerShieldingBoxes,
+                              _InnerShieldingBricks));
+    } else {
+      // The earlier description, whose geometry is written out in
+      // constructSTM.cc, so only the switch is carried.
           stm._pSTMInnerShieldingParams = std::unique_ptr<InnerShielding>
           (new InnerShielding(_InnerShieldingBuild));
+    }
 
    ////////////////////////////////////////////////////////////////
    //STM Back Shielding
@@ -880,7 +894,8 @@ namespace mu2e {
                             _config.getDouble("stm.leadBrick." + name + ".dy"),
                             _config.getDouble("stm.leadBrick." + name + ".dz")));
       }
-      _leadBrickWear      = _config.getDouble("stm.leadBrick.wear");
+      _leadBrickWearY     = _config.getDouble("stm.leadBrick.wearY");
+      _leadBrickWearXZ    = _config.getDouble("stm.leadBrick.wearXZ");
       _leadBrickMaterial  = _config.getString("stm.leadBrick.material");
     }
 
@@ -1326,6 +1341,24 @@ namespace mu2e {
       };
       auto fsrTypeWidth = [&](int type) { return fsrTypeSpan(type, fsrCourseDir); };
 
+      // How much wear comes off each face along a given direction. The
+      // wear is not isotropic -- one value for whichever of the
+      // brick's own axes ends up vertical, another for the other two --
+      // so it has to be projected through the rotation just as the
+      // dimensions are. Needed by the bore guard below, which has to
+      // compare against the solid the hole is actually cut from, not
+      // the as-delivered brick.
+      auto fsrWearAlong = [&](CLHEP::Hep3Vector const & dir) {
+        double w = 0.;
+        for (int k = 0; k < 3; ++k) {
+          const CLHEP::Hep3Vector axis =
+            fsrBrickRot * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+          w += std::abs(axis.dot(dir))
+             * ((std::abs(axis.y()) > 0.5) ? _leadBrickWearY : _leadBrickWearXZ);
+        }
+        return w;
+      };
+
       // Walk the layer sequence in depth. A lead layer expands into a
       // BrickWall; a sheet layer into plates held by the section.
       const int fsrLayerN = _config.getInt("stm.FrontShieldingRight.layerN");
@@ -1415,10 +1448,16 @@ namespace mu2e {
                   // would clip nothing and the beam would see solid
                   // lead, with nothing to say so.
                   const BrickWallBore & bore = fsrBores[e.bore-1];
-                  const double xlo = x, xhi = x + w;
+                  // Against the WORN brick, not the as-delivered one:
+                  // that is the solid the hole is cut from, so a bore
+                  // sitting in the wear gap would clip nothing while
+                  // passing a nominal check.
+                  const double wearX = fsrWearAlong(fsrCourseDir);
+                  const double wearY = fsrWearAlong(fsrPitchDir);
+                  const double xlo = x + wearX, xhi = x + w - wearX;
                   const double h    = fsrTypeSpan(types[p], fsrPitchDir);
-                  const double ylo  = b.center.y() - h/2;
-                  const double yhi  = b.center.y() + h/2;
+                  const double ylo  = b.center.y() - h/2 + wearY;
+                  const double yhi  = b.center.y() + h/2 - wearY;
                   // Both axes matter. In x the courses are pinned by
                   // brickEndX while the holes follow the beam, and in y
                   // the courses stack from the baseplate while the beam
@@ -1437,7 +1476,7 @@ namespace mu2e {
                       << ", " << bore.center.x() + bore.radius
                       << "], y = [" << bore.center.y() - bore.radius
                       << ", " << bore.center.y() + bore.radius << "] mm;\n"
-                      << "that brick spans x = [" << xlo << ", " << xhi
+                      << "that brick, worn, spans x = [" << xlo << ", " << xhi
                       << "], y = [" << ylo << ", " << yhi << "] mm.\n"
                       << "Check stm.FrontShieldingRight.brickEndX ("
                       << fsrBrickEndX << " mm), the course stack "
@@ -2846,6 +2885,244 @@ namespace mu2e {
 
 
     _InnerShieldingBuild        = _config.getBool("stm.InnerShielding.build");
+
+    // The updated inner shielding. Unlike the walls this is not a
+    // stack of layers: every piece is placed on its own, so what
+    // follows is three lists rather than a sequence.
+    //
+    // The reference is the bottom wall's, moved in 0.5 in and up 6 in
+    // -- directly above the origin of that wall's first copper prism,
+    // and level with the top of its lead.
+    if (_handstacked) {
+      const double innerRefX = _ShieldHouseRefX
+                             + _config.getDouble("stm.BottomWall.refFromHouseX")
+                             + _config.getDouble("stm.InnerShielding.refFromBottomWallX");
+      const double innerRefY = -_STM_SSCboreToBase
+                             + _config.getDouble("stm.InnerShielding.refFromBottomWallY");
+      const double innerRefZ = _ShieldHouseRefZ;
+
+      const std::string innerCuMat =
+        _config.getString("stm.InnerShielding.lining.material");
+
+      // ---- the copper lining ----------------------------------------
+      //
+      // The left slanted piece starts at the reference; the other five
+      // start a step above it. Every piece here is pinned at the
+      // mid-plane of its own height, since an extruded solid is centred
+      // on its placement point and the boxes follow the same height.
+      const double innerStepUp   = _config.getDouble("stm.InnerShielding.lining.stepUp");
+      const double innerCuHeight = _config.getDouble("stm.InnerShielding.lining.height");
+
+      // The mid-plane the five stepped-up pieces share.
+      const double innerCuY = innerRefY + innerStepUp + innerCuHeight/2;
+
+      // One helper for the four lining prisms and the four lead ones:
+      // they differ only in which keys they read.
+      auto innerPrism = [&](std::string const & key,
+                            std::string const & name,
+                            std::string const & material,
+                            double length,
+                            double y,
+                            bool bored) {
+        InnerShieldingPrism p;
+        p.name     = name;
+        p.material = material;
+        _config.getVectorDouble("stm.InnerShielding." + key + ".UVerts", p.uVerts);
+        _config.getVectorDouble("stm.InnerShielding." + key + ".VVerts", p.vVerts);
+        p.length      = length;
+        p.orientation = _config.getString("stm.InnerShielding." + key + ".orientation");
+        p.anchor      = CLHEP::Hep3Vector(
+          innerRefX + _config.getDouble("stm.InnerShielding." + key + ".fromRefX"),
+          y,
+          innerRefZ + _config.getDouble("stm.InnerShielding." + key + ".fromRefZ"));
+        p.bored = bored;
+        return p;
+      };
+
+      // The left slanted piece: the one at the reference height.
+      {
+        const double h = _config.getDouble("stm.InnerShielding.liningLeftSlanted.height");
+        _InnerShieldingPrisms.push_back(
+          innerPrism("liningLeftSlanted", "CopperInnerLeftSlantedPV", innerCuMat,
+                     h, innerRefY + h/2, false));
+      }
+
+      // The other three lining prisms, a step up from the reference.
+      _InnerShieldingPrisms.push_back(
+        innerPrism("liningMidLeftWall", "CopperInnerMidLeftWallPV", innerCuMat,
+                   innerCuHeight, innerCuY, false));
+      _InnerShieldingPrisms.push_back(
+        innerPrism("liningMidSlanted", "CopperInnerMidSlantedPV", innerCuMat,
+                   innerCuHeight, innerCuY, false));
+      _InnerShieldingPrisms.push_back(
+        innerPrism("liningMidBack", "CopperInnerMidBackPV", innerCuMat,
+                   innerCuHeight, innerCuY,
+                   _config.getBool("stm.InnerShielding.liningMidBack.bored")));
+
+      // The two lining boxes, on that same mid-plane.
+      {
+        const double rdx = _config.getDouble("stm.InnerShielding.liningMidRight.dx");
+        const double rdz = _config.getDouble("stm.InnerShielding.liningMidRight.dz");
+        InnerShieldingBox right;
+        right.name        = "CopperInnerMidRightPV";
+        right.material    = innerCuMat;
+        right.halfDim     = CLHEP::Hep3Vector(rdx/2, innerCuHeight/2, rdz/2);
+        right.center      = CLHEP::Hep3Vector(
+          innerRefX + _config.getDouble("stm.InnerShielding.liningMidRight.centreFromRefX"),
+          innerCuY,
+          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidRight.centreFromRefZ"));
+        right.orientation = "000";
+        right.bored       = false;
+        right.nudge       = false;
+        _InnerShieldingBoxes.push_back(right);
+
+        const double bdx = _config.getDouble("stm.InnerShielding.liningMidBackBox.dx");
+        const double bdz = _config.getDouble("stm.InnerShielding.liningMidBackBox.dz");
+        InnerShieldingBox back;
+        back.name        = "CopperInnerMidBackBoxPV";
+        back.material    = innerCuMat;
+        back.halfDim     = CLHEP::Hep3Vector(bdx/2, innerCuHeight/2, bdz/2);
+        back.center      = CLHEP::Hep3Vector(
+          innerRefX + _config.getDouble("stm.InnerShielding.liningMidBackBox.centreFromRefX"),
+          innerCuY,
+          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidBackBox.centreFromRefZ"));
+        back.orientation = "000";
+        back.bored       = _config.getBool("stm.InnerShielding.liningMidBackBox.bored");
+        back.nudge       = false;
+        _InnerShieldingBoxes.push_back(back);
+      }
+
+      // ---- the lead -------------------------------------------------
+
+      // The bricks that lie square, each given by its own centre as
+      // {type, orientation, x, y, z}.
+      {
+        const int n = _config.getInt("stm.InnerShielding.leadBrickN");
+        for (int i = 1; i <= n; ++i) {
+          std::ostringstream key;
+          key << "stm.InnerShielding.leadBrick" << i;
+          std::vector<double> v;
+          _config.getVectorDouble(key.str(), v, 5);
+
+          const int type = int(v[0]);
+          if (type < 1 || type > int(_leadBrickDims.size())) {
+            throw cet::exception("GEOM")
+              << "STMMaker: " << key.str() << " names brick type " << type
+              << ", but stm.leadBrick.typeN defines only "
+              << _leadBrickDims.size() << ".\n";
+          }
+          // The orientation rides in the tuple as a number, so it is
+          // turned back into the three-digit code the resolver reads;
+          // leading zeros matter, hence the width.
+          std::ostringstream orient;
+          orient << std::setw(3) << std::setfill('0') << int(v[1]);
+
+          InnerShieldingBrick b;
+          b.type        = type;
+          b.orientation = orient.str();
+          b.center      = CLHEP::Hep3Vector(innerRefX + v[2],
+                                            innerRefY + v[3],
+                                            innerRefZ + v[4]);
+          b.bored       = false;
+          _InnerShieldingBricks.push_back(b);
+        }
+      }
+
+      // The bored brick, on the LaBr axis. It lies in the leadBrick
+      // native frame, so it needs no rotation.
+      {
+        InnerShieldingBrick b;
+        b.type        = 2;
+        b.orientation = "000";
+        b.center      = CLHEP::Hep3Vector(
+          innerRefX + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefX"),
+          innerRefY + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefY"),
+          innerRefZ + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefZ"));
+        b.bored       = true;
+        _InnerShieldingBricks.push_back(b);
+      }
+
+      // The three turned 45 degrees about y. Stated as boxes because
+      // the 45 degree code is a special case in OrientationResolver
+      // that cannot follow a 90 degree step.
+      //
+      // Their nominal sizes would touch the volumes around them once
+      // turned, so each half-dimension is backed off by the shared
+      // nudge rather than the config carrying shrunk numbers.
+      {
+        const std::string orient =
+          _config.getString("stm.InnerShielding.leadAngledBox.orientation");
+        for (int i = 1; i <= 3; ++i) {
+          std::ostringstream base, name;
+          base << "stm.InnerShielding.leadAngledBox" << i;
+          name << "LeadInnerAngledBox" << i << "PV";
+
+          const double dx = _config.getDouble(base.str() + ".dx");
+          const double dy = _config.getDouble(base.str() + ".dy");
+          const double dz = _config.getDouble(base.str() + ".dz");
+
+          InnerShieldingBox b;
+          b.name        = name.str();
+          b.material    = _leadBrickMaterial;
+          // Nominal. The construction code backs each half-dimension
+          // off by its own nudge, since the constant lives there.
+          b.halfDim     = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
+          b.center      = CLHEP::Hep3Vector(
+            innerRefX + _config.getDouble(base.str() + ".centreFromRefX"),
+            innerRefY + _config.getDouble(base.str() + ".centreFromRefY"),
+            innerRefZ + _config.getDouble(base.str() + ".centreFromRefZ"));
+          b.orientation = orient;
+          b.bored       = false;
+          b.nudge       = true;
+          _InnerShieldingBoxes.push_back(b);
+        }
+      }
+
+      // The angled triangular prism.
+      _InnerShieldingPrisms.push_back(
+        innerPrism("leadAngled", "LeadInnerAngledPV", _leadBrickMaterial,
+                   _config.getDouble("stm.InnerShielding.leadAngled.length"),
+                   innerRefY + _config.getDouble("stm.InnerShielding.leadAngled.fromRefY"),
+                   false));
+
+      // The bored trapezoid.
+      _InnerShieldingPrisms.push_back(
+        innerPrism("leadHoleCut", "LeadInnerHoleCutPV", _leadBrickMaterial,
+                   _config.getDouble("stm.InnerShielding.leadHoleCut.length"),
+                   innerRefY + _config.getDouble("stm.InnerShielding.leadHoleCut.fromRefY"),
+                   true));
+
+      // The two clipped prisms, above and below the trapezoid. They
+      // share one outline and differ only in thickness and height, so
+      // the shared keys are read once.
+      {
+        std::vector<double> u, v;
+        _config.getVectorDouble("stm.InnerShielding.leadClipped.UVerts", u);
+        _config.getVectorDouble("stm.InnerShielding.leadClipped.VVerts", v);
+        const std::string orient =
+          _config.getString("stm.InnerShielding.leadClipped.orientation");
+
+        for (int i = 1; i <= 2; ++i) {
+          std::ostringstream base, name;
+          base << "stm.InnerShielding.leadClipped" << i;
+          name << "LeadInnerClipped" << i << "PV";
+
+          InnerShieldingPrism p;
+          p.name        = name.str();
+          p.material    = _leadBrickMaterial;
+          p.uVerts      = u;
+          p.vVerts      = v;
+          p.length      = _config.getDouble(base.str() + ".length");
+          p.orientation = orient;
+          p.anchor      = CLHEP::Hep3Vector(
+            innerRefX + _config.getDouble(base.str() + ".fromRefX"),
+            innerRefY + _config.getDouble(base.str() + ".fromRefY"),
+            innerRefZ + _config.getDouble(base.str() + ".fromRefZ"));
+          p.bored       = false;
+          _InnerShieldingPrisms.push_back(p);
+        }
+      }
+    }
 
 
 
