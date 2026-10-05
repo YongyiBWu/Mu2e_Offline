@@ -18,30 +18,25 @@
 //   pitchDir    the way courses stack across the layer
 //   depthDir    which side of the origin the layer occupies
 //
-// This is ONE layer of bricks. A wall is several of these interleaved
-// with sheets, and it is the section that owns that sequence: sheets
-// differ from layer to layer -- one split into plates, another whole
-// -- so they are described where they are placed, not here.
+// Carrying the directions as vectors rather than axis names settles
+// the signs: the front wall's first course is origin (brickEndX, bore,
+// front face) with courseDir -x, pitchDir +y, depthDir +z; a right
+// wall is the same class with courseDir +z and depthDir -x.
 //
-// The directions also settle the sign questions that an axis name
-// cannot: a course may run either way from its corner, and a layer
-// may sit on either side of it. The front wall's first course is
-// origin (brickEndX, bore, front face) with courseDir -x, pitchDir
-// +y, depthDir +z; a right wall is the same class with courseDir +z
-// and depthDir -x.
+// This is ONE layer of bricks. A wall is several of these interleaved
+// with sheets, and the section owns that sequence, since sheets differ
+// from layer to layer.
 //
 // A brick's place follows from butting its course's type list end to
 // end against the origin, so no position here is a measured one.
-// STMMaker does that expansion and hands over finished placements;
-// the construction code never re-derives a position.
+// STMMaker does that expansion and hands over finished placements.
 //
-// Bores are kept apart from brick types on purpose. A type is a shape
-// only; which holes pass through which brick is the bore map, so a
-// brick catching one hole and a brick catching two remain the same
-// type. The map is given rather than computed so that it can be
-// checked against the geometry: if the origin moves far enough to
-// slide a hole onto a neighbouring brick, the mismatch is caught
-// instead of quietly boring the wrong piece.
+// Bores are kept apart from brick types on purpose: a type is a shape
+// only, so a brick catching one hole and a brick catching two remain
+// the same type. The bore map is given rather than computed so that it
+// can be checked against the geometry -- if the origin moves far
+// enough to slide a hole onto a neighbouring brick, the mismatch is
+// caught instead of quietly boring the wrong piece.
 //
 // Author: Yongyi Wu
 
@@ -59,6 +54,22 @@ namespace mu2e {
     CLHEP::Hep3Vector   center;
     std::string         orientation;   // OrientationResolver code
     std::vector<int>    bores;         // bore ids through this brick, may be empty
+  };
+
+  // One flat plate in a wall: the poly and copper sheets and the
+  // aluminium plates. Shared by all four walls, which differ in which
+  // plates they have and where those sit, never in what a plate is.
+  //
+  // No bores and no orientation -- halfDim is already in the Mu2e
+  // frame, so which of the three is the thickness is read off it.
+  // STMMaker sets each name, where which-plate-is-which is known;
+  // numbering them in the construction code would put poly, copper and
+  // aluminium in one series and lose the material prefix.
+  struct WallSheet {
+    std::string       name;
+    std::string       material;
+    CLHEP::Hep3Vector halfDim;
+    CLHEP::Hep3Vector center;
   };
 
   // One hole. It is pinned to a beam axis rather than to the wall, so

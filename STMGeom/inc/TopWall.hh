@@ -8,10 +8,10 @@
 // of aluminium plates. 29 pieces, none of them bored.
 //
 // The lead layer is a BrickWall like the side walls', but laid flat:
-// its columns run side by side in x and each column runs along z, so
+// its courses run side by side in x and each course runs along z, so
 // the 2 in of a brick is the layer's thickness in y. Two of the five
-// columns start 3 in along z from the rest, which is why the columns
-// carry their own offsets rather than sharing one origin.
+// courses start 3 in along z from the rest, which is why each carries
+// its own offset rather than sharing one origin.
 //
 // Every position arrives resolved from STMMaker. The wall is fixed by
 // one reference -- inboard of the right wall in x, at that wall's
@@ -30,26 +30,14 @@
 
 namespace mu2e {
 
-  // A flat sheet or plate: the two poly sheets and the two aluminium
-  // plates. No bores and no orientation -- halfDim is already in the
-  // Mu2e frame, so which of the three is the thickness is read off it
-  // rather than from a rotation applied afterwards.
-  //
-  // These are not all of one material, so each carries the name its
-  // volume takes, set by STMMaker where which-piece-is-which is known.
-  struct TopWallSheet {
-    std::string       name;
-    std::string       material;
-    CLHEP::Hep3Vector halfDim;
-    CLHEP::Hep3Vector center;
-  };
+  // Its flat plates are WallSheet, shared with the other walls.
 
   class TopWall {
   public:
 
     TopWall(bool build,
             std::vector<BrickWall> const & leadLayers,
-            std::vector<TopWallSheet> const & sheets
+            std::vector<WallSheet> const & sheets
             ) :
       _build(build),
       _leadLayers(leadLayers),
@@ -65,7 +53,7 @@ namespace mu2e {
 
     // The flat pieces, in the order the layers are built: the two poly
     // sheets, then the two aluminium plates.
-    std::vector<TopWallSheet> const & sheets() const {return _sheets;}
+    std::vector<WallSheet> const & sheets() const {return _sheets;}
 
     // Genreflex can't do persistency of vector<TopWall> without a
     // default constructor
@@ -75,8 +63,8 @@ namespace mu2e {
 
     bool _build;
 
-    std::vector<BrickWall>    _leadLayers;
-    std::vector<TopWallSheet> _sheets;
+    std::vector<BrickWall> _leadLayers;
+    std::vector<WallSheet> _sheets;
   };
 
 }

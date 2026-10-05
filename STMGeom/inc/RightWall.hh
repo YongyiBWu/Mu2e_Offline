@@ -8,10 +8,8 @@
 // outer poly pair, a lead layer, an inner poly pair, a second lead
 // layer, and a copper sheet -- 26 pieces. Nothing here is bored.
 //
-// The lead layers are BrickWalls, as in the front shielding, but their
-// courses run along z rather than x and the layers stack along -x, so
-// the same class describes them with different directions rather than
-// with a special case.
+// The lead layers are BrickWalls, as in the front shielding, with
+// courses running along z and the layers stacking along -x.
 //
 // Every position arrives resolved from STMMaker. The wall is fixed by
 // the reference vertex -- flush with the +z side of the front
@@ -31,22 +29,7 @@
 
 namespace mu2e {
 
-  // A flat sheet: the two poly pairs and the copper sheet. No bores and
-  // no orientation -- halfDim is already in the Mu2e frame, so which of
-  // the three is the thickness is read off it rather than from a
-  // rotation applied afterwards.
-  //
-  // These are not all of one material, so each carries the name its
-  // volume takes. STMMaker sets it where the sheet is built, since that
-  // is where which-sheet-is-which is known; naming them by index in the
-  // construction code would put poly and copper in one series and lose
-  // the material prefix the rest of the STM volumes use.
-  struct RightWallSheet {
-    std::string       name;
-    std::string       material;
-    CLHEP::Hep3Vector halfDim;
-    CLHEP::Hep3Vector center;
-  };
+  // Its flat plates are WallSheet, shared with the other walls.
 
   // The L-shaped edge piece at the upstream end: an outline in the
   // y-z plane swept along x, given in the ExtShieldDownstream form.
@@ -56,10 +39,10 @@ namespace mu2e {
     std::vector<double> vVerts;
     double              length;        // the sweep, its thickness in x
     std::string         orientation;
-    // Placed by an ANCHOR, not a centre: the outline is drawn from the
-    // corner where it meets the front shielding, and an L has no centre
-    // that lines up with anything. The sweep is centred on the anchor,
-    // as G4ExtrudedSolid centres an extrusion on its placement point.
+    // Placed by an ANCHOR, not a center: the outline is drawn from the
+    // corner where it meets the front shielding, and an L has no center
+    // that lines up with anything. The sweep is centered on the anchor,
+    // as G4ExtrudedSolid centers an extrusion on its placement point.
     CLHEP::Hep3Vector   anchor;
   };
 
@@ -68,7 +51,7 @@ namespace mu2e {
 
     RightWall(bool build,
               std::vector<BrickWall> const & leadLayers,
-              std::vector<RightWallSheet> const & sheets,
+              std::vector<WallSheet> const & sheets,
               RightWallEdgePrism const & edgePrism
               ) :
       _build(build),
@@ -86,7 +69,7 @@ namespace mu2e {
 
     // The flat sheets, in the order the layers are built: the outer top
     // sheet, the inner longwall and top sheet, then the copper sheet.
-    std::vector<RightWallSheet> const & sheets() const {return _sheets;}
+    std::vector<WallSheet> const & sheets() const {return _sheets;}
 
     RightWallEdgePrism const & edgePrism() const {return _edgePrism;}
 
@@ -98,9 +81,9 @@ namespace mu2e {
 
     bool _build;
 
-    std::vector<BrickWall>      _leadLayers;
-    std::vector<RightWallSheet> _sheets;
-    RightWallEdgePrism          _edgePrism;
+    std::vector<BrickWall> _leadLayers;
+    std::vector<WallSheet> _sheets;
+    RightWallEdgePrism     _edgePrism;
   };
 
 }

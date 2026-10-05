@@ -11,6 +11,8 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <functional>
+#include <string>
 #include <vector>
 #include <sstream>
 #include <algorithm>
@@ -66,6 +68,303 @@ namespace mu2e {
         span += std::abs(axis.dot(dir)) * dim[k];
       }
       return span;
+    }
+
+    // The rotation an orientation code stands for.
+    CLHEP::HepRotation rotationFor(std::string const & orientation) {
+      CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
+      OrientationResolver OR;
+      OR.getRotationFromOrientation(rot, orientation);
+      return rot;
+    }
+
+    // How much of a brick type reaches along one Mu2e direction, with
+    // the type range checked.
+    //
+    // dims is the list every section shares, indexed from 1 as the
+    // geometry file numbers the types. `what` names the caller so a bad
+    // type number says which section asked.
+    double brickSpan(std::vector<CLHEP::Hep3Vector> const & dims,
+                     int type,
+                     CLHEP::HepRotation const & rot,
+                     CLHEP::Hep3Vector const & dir,
+                     std::string const & what) {
+      if (type < 1 || type > int(dims.size())) {
+        throw cet::exception("GEOM")
+          << "STMMaker: " << what << " names brick type " << type
+          << ", but stm.leadBrick.typeN defines only " << dims.size()
+          << ".\n";
+      }
+      return spanAlong(dims[type-1], rot, dir);
+    }
+
+    // Read a section's bore list, stated as boreN then bore<i>Axis,
+    // bore<i>R and bore<i>Offset<X/Y> under `base`, the section prefix
+    // (e.g. "stm.FrontShieldingRight").
+    //
+    // The holes follow the collimator rather than the structure they
+    // pass through, so each center comes from the spot offset with only
+    // a correction of its own, and y is the beam plane.
+    std::vector<BrickWallBore>
+    readBores(SimpleConfig const & config, std::string const & base,
+              double offsetSpot) {
+      std::vector<BrickWallBore> bores;
+      const int n = config.getInt(base + ".boreN");
+      for (int i = 1; i <= n; ++i) {
+        std::ostringstream key;
+        key << base << ".bore" << i;
+        BrickWallBore b;
+        b.axis   = config.getString(key.str() + "Axis");
+        b.radius = config.getDouble(key.str() + "R");
+        b.offset = CLHEP::Hep3Vector(config.getDouble(key.str() + "OffsetX"),
+                                     config.getDouble(key.str() + "OffsetY"), 0.);
+        const double sign = (b.axis == "LaBr") ? +1. : -1.;
+        b.center = CLHEP::Hep3Vector(sign*offsetSpot + b.offset.x(),
+                                     b.offset.y(), 0.);
+        bores.push_back(b);
+      }
+      return bores;
+    }
+
+    // The bore ids a piece names, range-checked against the section's
+    // own bore list. `what` names the key so a bad id says which piece
+    // asked for it.
+    std::vector<int>
+    readPieceBores(SimpleConfig const & config, std::string const & key,
+                   size_t boreN, std::string const & what) {
+      std::vector<int> ids;
+      config.getVectorInt(key, ids, std::vector<int>());
+      for (int id : ids) {
+        if (id < 1 || id > int(boreN)) {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << what << " names bore " << id
+            << ", but " << boreN << " are defined for that section.\n";
+        }
+      }
+      return ids;
+    }
+
+    // Which bores pass through the brick at a given position in a
+    // course, and the wear to allow when checking they fit.
+    //
+    // A section that bores nothing leaves `bores` null and the whole
+    // business is skipped. One that does bores passes its list and a
+    // predicate saying which positions take which hole, and layCourse
+    // checks each hole really lands on the brick named -- otherwise the
+    // subtraction would clip nothing and the beam would see solid lead,
+    // with nothing to say so.
+    struct CourseBores {
+      std::vector<BrickWallBore> const * bores;   // 0 when none
+      // position in the course, 1-based -> bore ids through that brick
+      std::function<std::vector<int>(int)>  at;
+      double wearAlongCourse;
+      double wearAlongPitch;
+      std::string context;   // added to a failure, naming the caller
+
+      CourseBores() : bores(0), wearAlongCourse(0.), wearAlongPitch(0.) {}
+    };
+
+    // Lay one course: butt a list of brick types end to end from
+    // `start`, the corner the first brick's near face sits on, and hand
+    // back the placed bricks. The three directions are BrickWall's.
+    //
+    // Each brick is centered half its own span inside the course along
+    // all three, so the caller states a corner and gets centers back.
+    // `step` returns the course's own span along the pitch and `thick`
+    // its span along the depth: a course is one brick deep and one
+    // brick tall.
+    std::vector<BrickWallBrick>
+    layCourse(std::vector<int> const & types,
+              std::string const & orientation,
+              CLHEP::Hep3Vector const & start,
+              CLHEP::Hep3Vector const & courseDir,
+              CLHEP::Hep3Vector const & pitchDir,
+              CLHEP::Hep3Vector const & depthDir,
+              std::vector<CLHEP::Hep3Vector> const & dims,
+              std::string const & what,
+              double * step = 0,
+              double * thick = 0,
+              CourseBores const & bores = CourseBores()) {
+      if (types.empty()) {
+        throw cet::exception("GEOM")
+          << "STMMaker: " << what << " is an empty course.\n";
+      }
+      const CLHEP::HepRotation rot = rotationFor(orientation);
+
+      const double h = brickSpan(dims, types[0], rot, pitchDir, what);
+      const double d = brickSpan(dims, types[0], rot, depthDir, what);
+      if (step)  *step  = h;
+      if (thick) *thick = d;
+
+      std::vector<BrickWallBrick> bricks;
+      double along = 0.;
+      for (size_t p = 0; p < types.size(); ++p) {
+        const double w = brickSpan(dims, types[p], rot, courseDir, what);
+        BrickWallBrick b;
+        b.type        = types[p];
+        b.orientation = orientation;
+        b.center      = start
+                      + courseDir*(along + w/2)
+                      + pitchDir *(h/2)
+                      + depthDir *(d/2);
+
+        // The holes, if this section has any. They are pinned to the
+        // beam while the course is pinned to the structure, so the two
+        // can be moved apart: each is checked against the WORN brick,
+        // which is the solid the hole is actually cut from.
+        if (bores.bores) {
+          for (int id : bores.at(int(p)+1)) {
+            if (id < 1 || id > int(bores.bores->size())) {
+              throw cet::exception("GEOM")
+                << "STMMaker: " << bores.context << " names bore " << id
+                << ", but only " << bores.bores->size() << " are defined.\n";
+            }
+            BrickWallBore const & bore = (*bores.bores)[id-1];
+
+            const double hp = brickSpan(dims, types[p], rot, pitchDir, what);
+            const double clo = b.center.dot(courseDir) - w/2 + bores.wearAlongCourse;
+            const double chi = b.center.dot(courseDir) + w/2 - bores.wearAlongCourse;
+            const double plo = b.center.dot(pitchDir)  - hp/2 + bores.wearAlongPitch;
+            const double phi = b.center.dot(pitchDir)  + hp/2 - bores.wearAlongPitch;
+            const double bc  = bore.center.dot(courseDir);
+            const double bp  = bore.center.dot(pitchDir);
+
+            if (bc - bore.radius < clo || bc + bore.radius > chi ||
+                bp - bore.radius < plo || bp + bore.radius > phi) {
+              throw cet::exception("GEOM")
+                << "STMMaker: bore " << id << " (" << bore.axis
+                << ") does not fit the brick at position " << p+1
+                << " of " << what << ", which " << bores.context
+                << " says is bored.\n"
+                << "Along the course the hole spans ["
+                << bc - bore.radius << ", " << bc + bore.radius
+                << "] and the worn brick [" << clo << ", " << chi << "];\n"
+                << "along the pitch the hole spans ["
+                << bp - bore.radius << ", " << bp + bore.radius
+                << "] and the worn brick [" << plo << ", " << phi << "] mm.\n"
+                << "Check what pins the course against what pins the"
+                << " beam, and this bore's own offset ("
+                << bore.offset.x() << ", " << bore.offset.y() << " mm).\n";
+            }
+            b.bores.push_back(id);
+          }
+        }
+
+        bricks.push_back(b);
+        along += w;
+      }
+      return bricks;
+    }
+
+    // Lay one whole layer of lead: every course of it, butted side by
+    // side along the pitch, and hand back the placed bricks.
+    //
+    // All four walls lay a layer the same way, so only the courses'
+    // type lists are stated and where each lands follows from the
+    // bricks. `prefix` is the layer's key stem, e.g.
+    // "stm.BottomWall.leadLayer2", and <prefix>CourseN the count. Two
+    // things vary between walls, and both fall back to a default:
+    //
+    //   <prefix>Course<c>FromRefZ     where the course starts along
+    //                                 courseDir. Absent means 0 -- the
+    //                                 side walls, whose courses all
+    //                                 start at the layer corner.
+    //   <prefix>Course<c>Orientation  read only when `orientation` is
+    //                                 empty; the side walls pass one
+    //                                 for the whole layer.
+    //
+    // `thick` returns the layer's depth, so the caller can advance its
+    // cursor. A layer is one brick deep.
+    std::vector<BrickWallBrick>
+    layLayer(SimpleConfig const & config,
+             std::string const & prefix,
+             CLHEP::Hep3Vector const & start,
+             CLHEP::Hep3Vector const & courseDir,
+             CLHEP::Hep3Vector const & pitchDir,
+             CLHEP::Hep3Vector const & depthDir,
+             std::vector<CLHEP::Hep3Vector> const & dims,
+             std::string const & orientation,
+             double * thick = 0) {
+      const int courseN = config.getInt(prefix + "CourseN");
+
+      std::vector<BrickWallBrick> bricks;
+      double acrossPitch = 0.;
+
+      for (int c = 1; c <= courseN; ++c) {
+        std::ostringstream ckey;
+        ckey << prefix << "Course" << c;
+
+        std::vector<int> types;
+        config.getVectorInt(ckey.str(), types);
+
+        const std::string orient = orientation.empty()
+          ? config.getString(ckey.str() + "Orientation") : orientation;
+        const double along = config.getDouble(ckey.str() + "FromRefZ", 0.);
+
+        // The course's extent along the pitch comes back from layCourse
+        // rather than being stated: it is what the next one starts
+        // after.
+        double extent = 0.;
+        const std::vector<BrickWallBrick> course =
+          layCourse(types, orient,
+                    start + courseDir*along + pitchDir*acrossPitch,
+                    courseDir, pitchDir, depthDir,
+                    dims, ckey.str(), &extent, thick);
+        bricks.insert(bricks.end(), course.begin(), course.end());
+        acrossPitch += extent;
+      }
+      return bricks;
+    }
+
+    // The bricks of a layer that break its course pattern, each given
+    // by its own center rather than by a place in a course:
+    //
+    //     {type, orientation, centerFromRefX, centerFromRefZ}
+    //
+    // The two offsets are Mu2e x and z as the geometry file states
+    // them, NOT projections onto the layer's own directions -- a stray
+    // is placed by measurement, so it is written the way it was
+    // measured. Only the depth comes from the layer.
+    //
+    // The orientation rides in the tuple as a number, so it is turned
+    // back into the three-digit code the resolver reads. Only the
+    // bottom wall has strays, but the tuple form lives here so it is
+    // written out once.
+    std::vector<BrickWallBrick>
+    layStrays(SimpleConfig const & config,
+              std::string const & prefix,
+              CLHEP::Hep3Vector const & start,
+              CLHEP::Hep3Vector const & depthDir,
+              std::vector<CLHEP::Hep3Vector> const & dims,
+              double thick) {
+      std::vector<BrickWallBrick> bricks;
+      const int extraN = config.getInt(prefix + "ExtraN", 0);
+
+      for (int e = 1; e <= extraN; ++e) {
+        std::ostringstream ekey;
+        ekey << prefix << "Extra" << e;
+        std::vector<double> v;
+        config.getVectorDouble(ekey.str(), v, 4);
+
+        const int type = int(v[0]);
+        if (type < 1 || type > int(dims.size())) {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << ekey.str() << " names brick type " << type
+            << ", but stm.leadBrick.typeN defines only " << dims.size()
+            << ".\n";
+        }
+        // Leading zeros matter, hence the width.
+        std::ostringstream orient;
+        orient << std::setw(3) << std::setfill('0') << int(v[1]);
+
+        BrickWallBrick b;
+        b.type        = type;
+        b.orientation = orient.str();
+        b.center      = start + depthDir*(thick/2)
+                      + CLHEP::Hep3Vector(v[2], 0., v[3]);
+        bricks.push_back(b);
+      }
+      return bricks;
     }
 
   } // anonymous namespace
@@ -781,12 +1080,13 @@ namespace mu2e {
 
     if (_handstacked) {
       // The updated lining: prisms, boxes and bricks, each already
-      // placed in parseConfig.
+      // placed in parseConfig, and the bores they name.
           stm._pSTMInnerShieldingParams = std::unique_ptr<InnerShielding>
           (new InnerShielding(_InnerShieldingBuild,
                               _InnerShieldingPrisms,
                               _InnerShieldingBoxes,
-                              _InnerShieldingBricks));
+                              _InnerShieldingBricks,
+                              _InnerShieldingBores));
     } else {
       // The earlier description, whose geometry is written out in
       // constructSTM.cc, so only the switch is carried.
@@ -836,10 +1136,7 @@ namespace mu2e {
       // absorber block.
       stm._pSSCFrontShieldParams = std::unique_ptr<SSCFrontShield>
               (new SSCFrontShield(_SSCFrontShieldBuild,
-                                  _SSCFrontShieldBrick2x4x8Center,
-                                  _SSCFrontShieldBrick2x4x8Orientation,
-                                  _SSCFrontShieldBrick2x4x16Center,
-                                  _SSCFrontShieldBrick2x4x16Orientation,
+                                  _SSCFrontShieldBricks,
                                   _SSCFrontShieldShelfMaterial,
                                   _SSCFrontShieldShelfDim,
                                   _SSCFrontShieldShelfCenter,
@@ -1125,15 +1422,16 @@ namespace mu2e {
 
     // ---- SSC front shield ---------------------------------------------
     //
-    // The geometry file writes every centre as if the structure sat
+    // The geometry file writes every center as if the structure sat
     // exactly on the SSC axis. Three offsets displace it, and they are
     // resolved here so that nothing downstream has to know which one
     // applies to which piece:
     //
     //   offsetX/offsetY        the whole structure
-    //   LaBrSideBrickOffsetX   the bricks, except 2x4x8 centres 1, 2 and
-    //                          4, which are constrained by poly2 instead
-    //   poly2.offsetX          poly2, and those same three bricks
+    //   LaBrSideBrickOffsetX   the bricks, except those a group's
+    //                          followPoly2 names, which are constrained
+    //                          by poly2 instead
+    //   poly2.offsetX          poly2, and those same bricks
     if (_handstacked) {
 
       _SSCFrontShieldBuild = _config.getBool("stm.SSCFrontShield.build");
@@ -1145,54 +1443,73 @@ namespace mu2e {
 
       const CLHEP::Hep3Vector fsShift(fsOffX, fsOffY, 0.);
 
-      // Read a numbered list of centres, shifting each by the structure
-      // offset plus whichever x offset that piece follows.
-      auto readCenters = [&](std::string const & base, int n,
-                             std::vector<double> const & extraX) {
-        std::vector<CLHEP::Hep3Vector> out;
-        out.reserve(n);
-        for (int i = 1; i <= n; ++i) {
-          std::ostringstream key;
-          key << base << ".center" << i;
-          std::vector<double> c;
-          _config.getVectorDouble(key.str(), c, 3);
-          out.push_back(CLHEP::Hep3Vector(c[0] + extraX.at(i-1), c[1], c[2]) + fsShift);
+      // Read one group of bricks: a type, n centers, and either one
+      // orientation for the whole group or one per brick. extraX is the
+      // x offset each brick of the group follows, on top of the
+      // whole-structure shift.
+      auto readBrickGroup = [&](std::string const & base, int n,
+                                std::vector<double> const & extraX) {
+        const int type = _config.getInt(base + ".type");
+        if (type < 1 || type > int(_leadBrickDims.size())) {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << base << ".type names brick type " << type
+            << ", but stm.leadBrick.typeN defines only "
+            << _leadBrickDims.size() << ".\n";
         }
-        return out;
-      };
-      // A structure may give one orientation for all of its bricks, as
-      // the 2x4x16 wall does, or one per brick.
-      auto readOrientations = [&](std::string const & base, int n) {
-        std::vector<std::string> out;
-        out.reserve(n);
         const std::string shared = _config.getString(base + ".orientation", "");
+
+        std::vector<BrickWallBrick> out;
+        out.reserve(n);
         for (int i = 1; i <= n; ++i) {
-          if (!shared.empty()) { out.push_back(shared); continue; }
-          std::ostringstream key;
-          key << base << ".orientation" << i;
-          out.push_back(_config.getString(key.str(), "000"));
+          std::ostringstream ckey, okey;
+          ckey << base << ".center"      << i;
+          okey << base << ".orientation" << i;
+
+          std::vector<double> c;
+          _config.getVectorDouble(ckey.str(), c, 3);
+
+          BrickWallBrick b;
+          b.type        = type;
+          b.orientation = shared.empty()
+                        ? _config.getString(okey.str(), "000") : shared;
+          b.center      = CLHEP::Hep3Vector(c[0] + extraX.at(i-1), c[1], c[2])
+                        + fsShift;
+          out.push_back(b);
         }
         return out;
       };
 
-      const int n16 = _config.getInt("stm.SSCFrontShield.brick2x4x16.n");
-      _SSCFrontShieldBrick2x4x16Center =
-        readCenters("stm.SSCFrontShield.brick2x4x16", n16,
-                    std::vector<double>(n16, fsLaBrOffX));
-      _SSCFrontShieldBrick2x4x16Orientation =
-        readOrientations("stm.SSCFrontShield.brick2x4x16", n16);
+      _SSCFrontShieldBricks.clear();
 
-      // Bricks 1, 2 and 4 sit against poly2 rather than the LaBr side
-      // stack, so they follow poly2's offset instead.
-      const int n8 = _config.getInt("stm.SSCFrontShield.brick2x4x8.n");
-      std::vector<double> extraX8(n8, fsLaBrOffX);
-      for (int i : {1, 2, 4}) {
-        if (i <= n8) extraX8[i-1] = fsPoly2OffX;
+      const int fsGroupN = _config.getInt("stm.SSCFrontShield.brickGroupN");
+      for (int g = 1; g <= fsGroupN; ++g) {
+        std::ostringstream base;
+        base << "stm.SSCFrontShield.brickGroup" << g;
+        const int n = _config.getInt(base.str() + ".n");
+
+        // Most bricks follow the LaBr side stack; the few that sit
+        // against poly2 follow its offset instead, and the geometry
+        // file names them by position rather than this code assuming
+        // which group they are in.
+        std::vector<int> followPoly2;
+        _config.getVectorInt(base.str() + ".followPoly2", followPoly2,
+                             std::vector<int>());
+
+        std::vector<double> extraX(n, fsLaBrOffX);
+        for (int i : followPoly2) {
+          if (i < 1 || i > n) {
+            throw cet::exception("GEOM")
+              << "STMMaker: " << base.str() << ".followPoly2 names brick "
+              << i << ", but the group has " << n << ".\n";
+          }
+          extraX[i-1] = fsPoly2OffX;
+        }
+
+        const std::vector<BrickWallBrick> group =
+          readBrickGroup(base.str(), n, extraX);
+        _SSCFrontShieldBricks.insert(_SSCFrontShieldBricks.end(),
+                                     group.begin(), group.end());
       }
-      _SSCFrontShieldBrick2x4x8Center =
-        readCenters("stm.SSCFrontShield.brick2x4x8", n8, extraX8);
-      _SSCFrontShieldBrick2x4x8Orientation =
-        readOrientations("stm.SSCFrontShield.brick2x4x8", n8);
 
       // The shelf and poly1 take only the whole-structure offset.
       _SSCFrontShieldShelfMaterial = _config.getString("stm.SSCFrontShield.shelf.material");
@@ -1259,24 +1576,9 @@ namespace mu2e {
       _FrontShieldingRightBrickEndX = fsrBrickEndX;
       _FrontShieldingRightFrontZ    = fsrFrontZ;
 
-      // The bores follow the collimator rather than the wall, so they
-      // are placed from offset_Spot with only a correction of their
-      // own. Their y is the beam plane.
-      std::vector<BrickWallBore> fsrBores;
-      const int fsrBoreN = _config.getInt("stm.FrontShieldingRight.boreN");
-      for (int i = 1; i <= fsrBoreN; ++i) {
-        std::ostringstream base;
-        base << "stm.FrontShieldingRight.bore" << i;
-        BrickWallBore b;
-        b.axis   = _config.getString(base.str() + "Axis");
-        b.radius = _config.getDouble(base.str() + "R");
-        b.offset = CLHEP::Hep3Vector(_config.getDouble(base.str() + "OffsetX"),
-                                     _config.getDouble(base.str() + "OffsetY"), 0.);
-        const double sign = (b.axis == "LaBr") ? +1. : -1.;
-        b.center = CLHEP::Hep3Vector(sign*_STM_SSCoffset_Spot + b.offset.x(),
-                                     b.offset.y(), 0.);
-        fsrBores.push_back(b);
-      }
+      const std::vector<BrickWallBore> fsrBores =
+        readBores(_config, "stm.FrontShieldingRight", _STM_SSCoffset_Spot);
+      const int fsrBoreN = int(fsrBores.size());
 
       // Which bores go through which brick: {layer, course, position,
       // bore}, one entry per hole.
@@ -1330,24 +1632,18 @@ namespace mu2e {
         OrientationResolver OR;
         OR.getRotationFromOrientation(fsrBrickRot, fsrBrickOrient);
       }
-      auto fsrTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
-        if (type < 1 || type > int(_leadBrickDims.size())) {
-          throw cet::exception("GEOM")
-            << "STMMaker: FrontShieldingRight names brick type " << type
-            << ", but stm.leadBrick.typeN defines only "
-            << _leadBrickDims.size() << ".\n";
-        }
-        return spanAlong(_leadBrickDims[type-1], fsrBrickRot, dir);
+      auto fsrTypeWidth = [&](int type) {
+        return brickSpan(_leadBrickDims, type, fsrBrickRot, fsrCourseDir,
+                         "stm.FrontShieldingRight");
       };
-      auto fsrTypeWidth = [&](int type) { return fsrTypeSpan(type, fsrCourseDir); };
 
       // How much wear comes off each face along a given direction. The
       // wear is not isotropic -- one value for whichever of the
       // brick's own axes ends up vertical, another for the other two --
       // so it has to be projected through the rotation just as the
-      // dimensions are. Needed by the bore guard below, which has to
-      // compare against the solid the hole is actually cut from, not
-      // the as-delivered brick.
+      // dimensions are. Needed by the bore guard, which has to compare
+      // against the solid the hole is actually cut from, not the
+      // as-delivered brick.
       auto fsrWearAlong = [&](CLHEP::Hep3Vector const & dir) {
         double w = 0.;
         for (int k = 0; k < 3; ++k) {
@@ -1403,95 +1699,63 @@ namespace mu2e {
             _config.getVectorInt(ckey.str(), types);
             if (types.empty()) {
               throw cet::exception("GEOM")
-                << "STMMaker: " << ckey.str() << " is empty.\n";
+                << "STMMaker: " << ckey.str() << " is an empty course.\n";
             }
 
-            // The layer is one brick deep, so its thickness is that of
-            // any of its bricks projected onto the depth direction.
-            // Only assigned once, which is fine as all layers have the 
-            // same thickness.
-            if (thick == 0.) thick = fsrTypeSpan(types[0], fsrDepthDir);
-
-            // Butt the types end to end, flush at brickEndX.
-            double total = 0.;
-            for (int t : types) total += fsrTypeWidth(t);
-            fsrCourseWidth = total;
-            // x start at the -x end, increase over the following iteration
-            double x = fsrBrickEndX - total;
-            for (size_t p = 0; p < types.size(); ++p) {
-              const double w = fsrTypeWidth(types[p]);
-              BrickWallBrick b;
-              b.type        = types[p];
-              b.orientation = fsrBrickOrient;
-              // Final position: no offset is added later. Unlike
-              // SSCFrontShield, this section carries no whole-structure
-              // shift -- it is pinned by brickEndX, boreToBase and
-              // wallToCradleGap, so it is moved by tuning one of those
-              // rather than by displacing finished coordinates. The
-              // only offsets here are per-bore, and they are already in
-              // the bore centres above.
-              b.center      = CLHEP::Hep3Vector(x + w/2,
-                                                fsrCourseOffsetY + fsrCourse[c]*fsrPitch,
-                                                fsrZ + thick/2);
+            // Which bores pass through the brick at a given position of
+            // this course, read off the bore map. The holes are pinned
+            // to the beam while brickEndX pins the courses, so the two
+            // can be moved apart; layCourse checks each one lands on
+            // the brick the map names.
+            CourseBores fsrCourseBores;
+            fsrCourseBores.bores           = &fsrBores;
+            fsrCourseBores.wearAlongCourse = fsrWearAlong(fsrCourseDir);
+            fsrCourseBores.wearAlongPitch  = fsrWearAlong(fsrPitchDir);
+            fsrCourseBores.context         = "stm.FrontShieldingRight.leadBoreMap";
+            fsrCourseBores.at = [&, c](int position) {
+              std::vector<int> ids;
               for (auto const & e : fsrBoreMap) {
                 if (e.layer == fsrLeadLayer && e.course == int(c)+1
-                    && e.position == int(p)+1) {
-                  if (e.bore < 1 || e.bore > fsrBoreN) {
-                    throw cet::exception("GEOM")
-                      << "STMMaker: FrontShieldingRight bore map names bore "
-                      << e.bore << ", but only " << fsrBoreN << " are defined.\n";
-                  }
-                  // The holes are pinned to the beam axes while
-                  // brickEndX positions the courses, so the two can be
-                  // moved apart. Check the hole really lands on the
-                  // brick the map claims: otherwise the subtraction
-                  // would clip nothing and the beam would see solid
-                  // lead, with nothing to say so.
-                  const BrickWallBore & bore = fsrBores[e.bore-1];
-                  // Against the WORN brick, not the as-delivered one:
-                  // that is the solid the hole is cut from, so a bore
-                  // sitting in the wear gap would clip nothing while
-                  // passing a nominal check.
-                  const double wearX = fsrWearAlong(fsrCourseDir);
-                  const double wearY = fsrWearAlong(fsrPitchDir);
-                  const double xlo = x + wearX, xhi = x + w - wearX;
-                  const double h    = fsrTypeSpan(types[p], fsrPitchDir);
-                  const double ylo  = b.center.y() - h/2 + wearY;
-                  const double yhi  = b.center.y() + h/2 - wearY;
-                  // Both axes matter. In x the courses are pinned by
-                  // brickEndX while the holes follow the beam, and in y
-                  // the courses stack from the baseplate while the beam
-                  // sits boreToBase above it -- so either can drift
-                  // away from the other.
-                  if (bore.center.x() - bore.radius < xlo ||
-                      bore.center.x() + bore.radius > xhi ||
-                      bore.center.y() - bore.radius < ylo ||
-                      bore.center.y() + bore.radius > yhi) {
-                    throw cet::exception("GEOM")
-                      << "STMMaker: FrontShieldingRight bore " << e.bore
-                      << " (" << bore.axis << ") does not fit the brick named by"
-                      << " leadBoreMap {layer " << e.layer << ", course "
-                      << e.course << ", position " << e.position << "}.\n"
-                      << "The hole spans x = [" << bore.center.x() - bore.radius
-                      << ", " << bore.center.x() + bore.radius
-                      << "], y = [" << bore.center.y() - bore.radius
-                      << ", " << bore.center.y() + bore.radius << "] mm;\n"
-                      << "that brick, worn, spans x = [" << xlo << ", " << xhi
-                      << "], y = [" << ylo << ", " << yhi << "] mm.\n"
-                      << "Check stm.FrontShieldingRight.brickEndX ("
-                      << fsrBrickEndX << " mm), the course stack "
-                      << "(boreToBase " << _STM_SSCboreToBase
-                      << ", block " << fsrBlockDyForCourses
-                      << ", pitch " << fsrPitch << " mm), and this bore's own "
-                      << "offset (" << bore.offset.x() << ", " << bore.offset.y()
-                      << " mm) against the bore map.\n";
-                  }
-                  b.bores.push_back(e.bore);
+                    && e.position == position) {
+                  ids.push_back(e.bore);
                 }
               }
-              bricks.push_back(b);
-              x += w;
-            }
+              return ids;
+            };
+
+            // Butt the types end to end, flush at brickEndX: the course
+            // runs toward -x, so that end IS the corner to start from.
+            //
+            // Unlike the walls the course plane here is absolute rather
+            // than accumulated -- it comes off the baseplate chain as a
+            // signed course number -- so layCourse is given the
+            // course's lower face and re-centers each brick itself.
+            // Backing off by the brick's own span rather than by
+            // coursePitch keeps the center where it was asked for even
+            // if a course is ever laid with thinner bricks.
+            //
+            // These are final positions: this section carries no
+            // whole-structure shift, being pinned by brickEndX,
+            // boreToBase and wallToCradleGap.
+            const double courseHeight =
+              brickSpan(_leadBrickDims, types[0], fsrBrickRot, fsrPitchDir,
+                        ckey.str());
+
+            const CLHEP::Hep3Vector fsrCourseStart(
+              fsrBrickEndX,
+              fsrCourseOffsetY + fsrCourse[c]*fsrPitch - courseHeight/2,
+              fsrZ);
+
+            const std::vector<BrickWallBrick> course =
+              layCourse(types, fsrBrickOrient, fsrCourseStart,
+                        fsrCourseDir, fsrPitchDir, fsrDepthDir,
+                        _leadBrickDims, ckey.str(), 0, &thick,
+                        fsrCourseBores);
+            bricks.insert(bricks.end(), course.begin(), course.end());
+
+            // The sheets share the courses' footprint.
+            fsrCourseWidth = 0.;
+            for (int t : types) fsrCourseWidth += fsrTypeWidth(t);
           }
 
           _FrontShieldingRightLeadLayers.push_back(
@@ -1577,7 +1841,7 @@ namespace mu2e {
       }
 
       // The copper plate, placed by the anchor corner of its outline
-      // rather than by a centre.
+      // rather than by a center.
       _FrontShieldingRightPlate.material =
         _config.getString("stm.FrontShieldingRight.copperLining.material");
       _config.getVectorDouble("stm.FrontShieldingRight.copperLining.UVerts",
@@ -1590,10 +1854,10 @@ namespace mu2e {
         _config.getString("stm.FrontShieldingRight.copperLining.orientation");
       const double fsrCuLiningFromEnd =
         _config.getDouble("stm.FrontShieldingRight.copperLining.originFromBrickEnd");
-      // The lining is not centred on the beam: its underside sits a
+      // The lining is not centered on the beam: its underside sits a
       // stated height above the baseplate, on the same chain that
       // fixes the bore height. The sweep runs along y and an extruded
-      // solid is centred on its placement point, so the anchor's y is
+      // solid is centered on its placement point, so the anchor's y is
       // the mid-plane -- bottom plus half the sweep -- not the edge.
       const double fsrCuLiningBottomToBase =
         _config.getDouble("stm.FrontShieldingRight.copperLining.bottomToBase");
@@ -1645,7 +1909,7 @@ namespace mu2e {
       // groups, four sheets and a prism, each placed against the
       // right half rather than measured on its own.
       //
-      // Every x is a centre measured back from brickEndX and so is
+      // Every x is a center measured back from brickEndX and so is
       // negative; every y is a height above the baseplate. The
       // per-bore offsets do not enter: they move the beam, and these
       // pieces are anchored by brickEndX and the baseplate.
@@ -1722,46 +1986,18 @@ namespace mu2e {
         std::vector<BrickWallBrick> bricks;
         double pitchAt = 0.;
         for (size_t c = 0; c < courses.size(); ++c) {
-          if (courses[c].empty()) {
-            throw cet::exception("GEOM")
-              << "STMMaker: FrontShieldingLeft " << what << " course "
-              << c+1 << " is empty.\n";
-          }
-          CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
-          {
-            OrientationResolver OR;
-            OR.getRotationFromOrientation(rot, orientations[c]);
-          }
-          auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
-            if (type < 1 || type > int(_leadBrickDims.size())) {
-              throw cet::exception("GEOM")
-                << "STMMaker: FrontShieldingLeft " << what
-                << " names brick type " << type
-                << ", but stm.leadBrick.typeN defines only "
-                << _leadBrickDims.size() << ".\n";
-            }
-            return spanAlong(_leadBrickDims[type-1], rot, dir);
-          };
+          std::ostringstream ckey;
+          ckey << "FrontShieldingLeft " << what << " course " << c+1;
 
-          // How far this course steps along the pitch. A course is one
-          // brick deep, so any of its bricks gives the step -- read
-          // per course rather than once, because these groups mix
-          // brick sizes from course to course.
-          const double step = span(courses[c][0], pitchDir);
-
-          double along = 0.;
-          for (int t : courses[c]) {
-            const double w = span(t, courseDir);
-            BrickWallBrick b;
-            b.type        = t;
-            b.orientation = orientations[c];
-            b.center      = origin
-                          + courseDir*(along + w/2)
-                          + pitchDir *(pitchAt + step/2)
-                          + depthDir *(span(t, depthDir)/2);
-            bricks.push_back(b);
-            along += w;
-          }
+          // The step is read per course rather than once, because
+          // these groups mix brick sizes from course to course.
+          double step = 0.;
+          const std::vector<BrickWallBrick> course =
+            layCourse(courses[c], orientations[c],
+                      origin + pitchDir*pitchAt,
+                      courseDir, pitchDir, depthDir,
+                      _leadBrickDims, ckey.str(), &step);
+          bricks.insert(bricks.end(), course.begin(), course.end());
           pitchAt += step;
         }
         return BrickWall(_FrontShieldingLeftBuild, origin,
@@ -1860,7 +2096,7 @@ namespace mu2e {
                         "inner grid"));
       }
 
-      // The prism, placed by its right angle rather than by a centre.
+      // The prism, placed by its right angle rather than by a center.
       _FrontShieldingLeftPrism.material =
         _config.getString("stm.FrontShieldingLeft.triangle.material");
       _config.getVectorDouble("stm.FrontShieldingLeft.triangle.UVerts",
@@ -1873,7 +2109,7 @@ namespace mu2e {
         _config.getString("stm.FrontShieldingLeft.triangle.orientation");
       // The right angle butts the inner sheet's +x and -z faces, and
       // the prism's top is level with that sheet's top. An extruded
-      // solid is centred on its placement point, so the anchor's y is
+      // solid is centered on its placement point, so the anchor's y is
       // half a sweep below that top rather than at it.
       {
         const double innerX =
@@ -1987,22 +2223,25 @@ namespace mu2e {
         _BottomWallPlate.material = _config.getString("stm.BottomWall.basePlate.material");
         _BottomWallPlate.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
         // The reference is the plate's TOP, so the plate hangs below it
-        // and its centre is half a thickness down.
+        // and its center is half a thickness down.
         _BottomWallPlate.center   = CLHEP::Hep3Vector(
-          bwRefX + _config.getDouble("stm.BottomWall.basePlate.centreFromRefX"),
+          bwRefX + _config.getDouble("stm.BottomWall.basePlate.centerFromRefX"),
           bwRefY - dy/2,
-          bwRefZ + _config.getDouble("stm.BottomWall.basePlate.centreFromRefZ"));
+          bwRefZ + _config.getDouble("stm.BottomWall.basePlate.centerFromRefZ"));
       }
 
-      // Columns pitch along -x from the reference and run along +z.
+      // Courses pitch along -x from the reference and run along +z.
       const CLHEP::Hep3Vector bwCourseDir( 0., 0., 1.);
       const CLHEP::Hep3Vector bwPitchDir (-1., 0., 0.);
       const CLHEP::Hep3Vector bwDepthDir ( 0., 1., 0.);  // layers stack up
 
       // Walk the layers upward from the top of the baseplate. Each
-      // starts at the top face of the one before it.
+      // starts at the face of the one before it. As in the side walls
+      // the cursor is a point advanced along depthDir, so the
+      // placements below read the same way in all four walls whichever
+      // way a given one stacks.
       const int bwLayerN = _config.getInt("stm.BottomWall.layerN");
-      double bwY = bwRefY;
+      CLHEP::Hep3Vector bwAt(bwRefX, bwRefY, bwRefZ);
       int bwLeadLayer = 0;
       int bwPolyLayer = 0;
 
@@ -2028,116 +2267,40 @@ namespace mu2e {
           p.length      = t;
           p.orientation = _config.getString("stm.BottomWall.polyPrism.orientation");
           // The cap's origin is at the reference in x and z; the sweep
-          // is centred on the placement point, so the anchor sits half
-          // a thickness above this layer's underside.
-          p.anchor = CLHEP::Hep3Vector(bwRefX, bwY + t/2, bwRefZ);
+          // is centered on the placement point, so the anchor sits half
+          // a thickness into this layer.
+          p.anchor = bwAt + bwDepthDir*(t/2);
           _BottomWallPrisms.push_back(p);
 
-          bwY += t;
+          bwAt += bwDepthDir*t;
 
         } else if (kind == "Pb") {
           ++bwLeadLayer;
 
-          std::ostringstream nkey;
-          nkey << "stm.BottomWall.leadLayer" << bwLeadLayer << "ColumnN";
-          const int columnN = _config.getInt(nkey.str());
+          // Each course states its own orientation, since they are not
+          // all the same width, so no layer-wide one is passed.
+          std::ostringstream pkey;
+          pkey << "stm.BottomWall.leadLayer" << bwLeadLayer;
 
-          std::vector<BrickWallBrick> bricks;
           double thick = 0.;
-          double acrossX = 0.;
+          std::vector<BrickWallBrick> bricks =
+            layLayer(_config, pkey.str(), bwAt,
+                     bwCourseDir, bwPitchDir, bwDepthDir,
+                     _leadBrickDims, "", &thick);
 
-          // The columns. They butt one another along the pitch, so only
-          // each one's z start is given and its width follows from the
-          // bricks themselves.
-          for (int c = 1; c <= columnN; ++c) {
-            std::ostringstream ckey, okey, zkey;
-            ckey << "stm.BottomWall.leadLayer" << bwLeadLayer << "Column" << c;
-            okey << ckey.str() << "Orientation";
-            zkey << ckey.str() << "FromRefZ";
-
-            std::vector<int> types;
-            _config.getVectorInt(ckey.str(), types);
-            if (types.empty()) {
-              throw cet::exception("GEOM")
-                << "STMMaker: " << ckey.str() << " is empty.\n";
-            }
-            const std::string orient = _config.getString(okey.str());
-            const double fromRefZ    = _config.getDouble(zkey.str());
-
-            CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
-            {
-              OrientationResolver OR;
-              OR.getRotationFromOrientation(rot, orient);
-            }
-            auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
-              if (type < 1 || type > int(_leadBrickDims.size())) {
-                throw cet::exception("GEOM")
-                  << "STMMaker: BottomWall names brick type " << type
-                  << ", but stm.leadBrick.typeN defines only "
-                  << _leadBrickDims.size() << ".\n";
-              }
-              return spanAlong(_leadBrickDims[type-1], rot, dir);
-            };
-
-            const double width = span(types[0], bwPitchDir);
-            if (thick == 0.) thick = span(types[0], bwDepthDir);
-
-            double along = 0.;
-            for (int t : types) {
-              const double len = span(t, bwCourseDir);
-              BrickWallBrick b;
-              b.type        = t;
-              b.orientation = orient;
-              b.center      = CLHEP::Hep3Vector(bwRefX - acrossX - width/2,
-                                                bwY + thick/2,
-                                                bwRefZ + fromRefZ + along + len/2);
-              bricks.push_back(b);
-              along += len;
-            }
-            acrossX += width;
-          }
-
-          // The bricks that break the column pattern, each given by its
-          // own centre rather than by a place in a column.
-          std::ostringstream xkey;
-          xkey << "stm.BottomWall.leadLayer" << bwLeadLayer << "ExtraN";
-          const int extraN = _config.getInt(xkey.str());
-
-          for (int e = 1; e <= extraN; ++e) {
-            std::ostringstream ekey;
-            ekey << "stm.BottomWall.leadLayer" << bwLeadLayer << "Extra" << e;
-            std::vector<double> v;
-            _config.getVectorDouble(ekey.str(), v, 4);
-
-            const int type = int(v[0]);
-            if (type < 1 || type > int(_leadBrickDims.size())) {
-              throw cet::exception("GEOM")
-                << "STMMaker: " << ekey.str() << " names brick type " << type
-                << ", but stm.leadBrick.typeN defines only "
-                << _leadBrickDims.size() << ".\n";
-            }
-            // The orientation is carried as a number in the tuple, so
-            // it is turned back into the three-digit code the resolver
-            // reads. Leading zeros matter, hence the width.
-            std::ostringstream orient;
-            orient << std::setw(3) << std::setfill('0') << int(v[1]);
-
-            BrickWallBrick b;
-            b.type        = type;
-            b.orientation = orient.str();
-            b.center      = CLHEP::Hep3Vector(bwRefX + v[2],
-                                              bwY + thick/2,
-                                              bwRefZ + v[3]);
-            bricks.push_back(b);
-          }
+          // Then the few that break the course pattern. This is the
+          // only wall that has any.
+          const std::vector<BrickWallBrick> strays =
+            layStrays(_config, pkey.str(), bwAt, bwDepthDir,
+                      _leadBrickDims, thick);
+          bricks.insert(bricks.end(), strays.begin(), strays.end());
 
           _BottomWallLeadLayers.push_back(
-            BrickWall(_BottomWallBuild,
-                      CLHEP::Hep3Vector(bwRefX, bwY, bwRefZ),
+            BrickWall(_BottomWallBuild, bwAt,
                       bwCourseDir, bwPitchDir, bwDepthDir,
                       bricks, std::vector<BrickWallBore>()));
 
-          bwY += thick;
+          bwAt += bwDepthDir*thick;
 
         } else if (kind == "Cu") {
           // Two prisms, each with its own outline and its own offsets.
@@ -2165,6 +2328,8 @@ namespace mu2e {
             _config.getVectorDouble(base.str() + ".VVerts", p.vVerts);
             p.length      = t;
             p.orientation = orient;
+            // Measured from the reference, not from the cursor, per
+            // anchorToBase above.
             p.anchor = CLHEP::Hep3Vector(
               bwRefX + _config.getDouble(base.str() + ".fromRefX"),
               bwRefY + toBase,
@@ -2172,7 +2337,7 @@ namespace mu2e {
             _BottomWallPrisms.push_back(p);
           }
 
-          bwY += t;
+          bwAt += bwDepthDir*t;
 
         } else {
           throw cet::exception("GEOM")
@@ -2192,8 +2357,7 @@ namespace mu2e {
     }
 
 
-    // The updated left wall replaces LeftShielding. The two read
-    // different keys and a geometry file carries only one set.
+    // The updated left wall replaces LeftShielding, as above.
     if (_handstacked) {
       // ---- Left wall --------------------------------------------------
       //
@@ -2226,30 +2390,18 @@ namespace mu2e {
 
       const std::string lwBrickOrient =
         _config.getString("stm.LeftWall.brickOrientation");
-      CLHEP::HepRotation lwBrickRot(CLHEP::HepRotation::IDENTITY);
-      {
-        OrientationResolver OR;
-        OR.getRotationFromOrientation(lwBrickRot, lwBrickOrient);
-      }
-      auto lwTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
-        if (type < 1 || type > int(_leadBrickDims.size())) {
-          throw cet::exception("GEOM")
-            << "STMMaker: LeftWall names brick type " << type
-            << ", but stm.leadBrick.typeN defines only "
-            << _leadBrickDims.size() << ".\n";
-        }
-        return spanAlong(_leadBrickDims[type-1], lwBrickRot, dir);
-      };
 
       // How far the wall runs in z. The sheets and the lead layers all
       // share it, and the copper is placed flush against its far end,
       // so it is read once from the poly rather than per piece.
       const double lwRunZ = _config.getDouble("stm.LeftWall.longwallPoly.dz");
 
-      // Walk the layers inward, each starting at the +x face of the one
-      // before it.
+      // Walk the layers inward, each starting at the face of the one
+      // before it. As in the right wall the cursor is a point advanced
+      // along depthDir, so none of the placements below carries the
+      // sign of the walk even though this wall stacks the other way.
       const int lwLayerN = _config.getInt("stm.LeftWall.layerN");
-      double lwX = lwRefX;
+      CLHEP::Hep3Vector lwAt(lwRefX, lwBaseY, lwRefZ);
       int lwLeadLayer = 0;
       int lwPolyPair = 0;
 
@@ -2261,51 +2413,23 @@ namespace mu2e {
         if (kind == "Pb") {
           ++lwLeadLayer;
 
-          std::ostringstream nkey;
-          nkey << "stm.LeftWall.leadLayer" << lwLeadLayer << "CourseN";
-          const int courseN = _config.getInt(nkey.str());
+          // The layer is one brick deep, and the courses stack by the
+          // brick's own span -- both follow from the rotation. One
+          // orientation for the whole layer, as in the right wall.
+          std::ostringstream pkey;
+          pkey << "stm.LeftWall.leadLayer" << lwLeadLayer;
 
-          // The layer is one brick deep, and the pitch is the brick's
-          // own span up the stack -- both follow from the rotation.
           double thick = 0.;
-          double pitchAt = 0.;
-
-          std::vector<BrickWallBrick> bricks;
-          for (int c = 1; c <= courseN; ++c) {
-            std::ostringstream ckey;
-            ckey << "stm.LeftWall.leadLayer" << lwLeadLayer << "Course" << c;
-            std::vector<int> types;
-            _config.getVectorInt(ckey.str(), types);
-            if (types.empty()) {
-              throw cet::exception("GEOM")
-                << "STMMaker: " << ckey.str() << " is empty.\n";
-            }
-
-            if (thick == 0.) thick = lwTypeSpan(types[0], lwDepthDir);
-            const double step = lwTypeSpan(types[0], lwPitchDir);
-
-            double along = 0.;
-            for (int t : types) {
-              const double w = lwTypeSpan(t, lwCourseDir);
-              BrickWallBrick b;
-              b.type        = t;
-              b.orientation = lwBrickOrient;
-              b.center      = CLHEP::Hep3Vector(lwX, lwBaseY, lwRefZ)
-                            + lwCourseDir*(along + w/2)
-                            + lwPitchDir *(pitchAt + step/2)
-                            + lwDepthDir *(thick/2);
-              bricks.push_back(b);
-              along += w;
-            }
-            pitchAt += step;
-          }
+          const std::vector<BrickWallBrick> bricks =
+            layLayer(_config, pkey.str(), lwAt,
+                     lwCourseDir, lwPitchDir, lwDepthDir,
+                     _leadBrickDims, lwBrickOrient, &thick);
 
           _LeftWallLeadLayers.push_back(
-            BrickWall(_LeftWallBuild,
-                      CLHEP::Hep3Vector(lwX, lwBaseY, lwRefZ),
+            BrickWall(_LeftWallBuild, lwAt,
                       lwCourseDir, lwPitchDir, lwDepthDir,
                       bricks, std::vector<BrickWallBore>()));
-          lwX += thick;
+          lwAt += lwDepthDir*thick;
 
         } else if (kind == "BP") {
           // A longwall standing on the baseplate and a top edge above
@@ -2321,13 +2445,12 @@ namespace mu2e {
           std::ostringstream lgName;
           lgName << "BPLeftWallLongwall" << lwPolyPair << "PV";
 
-          LeftWallSheet longwall;
+          WallSheet longwall;
           longwall.name     = lgName.str();
           longwall.material = lwPolyMat;
           longwall.halfDim  = CLHEP::Hep3Vector(lgDx/2, lgDy/2, lgDz/2);
-          longwall.center   = CLHEP::Hep3Vector(lwX + lgDx/2,
-                                                lwBaseY + lgToBase + lgDy/2,
-                                                lwRefZ + lgDz/2);
+          longwall.center   = lwAt + lwDepthDir*(lgDx/2)
+                            + CLHEP::Hep3Vector(0., lgToBase + lgDy/2, lgDz/2);
           _LeftWallSheets.push_back(longwall);
 
           const double teDx = _config.getDouble("stm.LeftWall.topEdgePoly.dx");
@@ -2339,17 +2462,16 @@ namespace mu2e {
           std::ostringstream teName;
           teName << "BPLeftWallTopEdge" << lwPolyPair << "PV";
 
-          LeftWallSheet top;
+          WallSheet top;
           top.name     = teName.str();
           top.material = lwPolyMat;
           top.halfDim  = CLHEP::Hep3Vector(teDx/2, teDy/2, teDz/2);
-          top.center   = CLHEP::Hep3Vector(lwX + teDx/2,
-                                           lwBaseY + teToBase + teDy/2,
-                                           lwRefZ + teDz/2);
+          top.center   = lwAt + lwDepthDir*(teDx/2)
+                       + CLHEP::Hep3Vector(0., teToBase + teDy/2, teDz/2);
           _LeftWallSheets.push_back(top);
 
           // Both are one plate thick, so either gives the step.
-          lwX += lgDx;
+          lwAt += lwDepthDir*lgDx;
 
         } else if (kind == "Cu") {
           const double dx = _config.getDouble("stm.LeftWall.copperSheet.dx");
@@ -2360,17 +2482,16 @@ namespace mu2e {
 
           // The one piece that does not start at the reference: it runs
           // the wall's length downstream and sits flush at the far +z
-          // end, so its centre is half its own depth back from there.
-          LeftWallSheet s;
+          // end, so its center is half its own depth back from there.
+          WallSheet s;
           s.name     = "CopperLeftWallSheetPV";
           s.material = _config.getString("stm.LeftWall.copperSheet.material");
           s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
-          s.center   = CLHEP::Hep3Vector(lwX + dx/2,
-                                         lwBaseY + toBase + dy/2,
-                                         lwRefZ + lwRunZ - dz/2);
+          s.center   = lwAt + lwDepthDir*(dx/2)
+                     + CLHEP::Hep3Vector(0., toBase + dy/2, lwRunZ - dz/2);
           _LeftWallSheets.push_back(s);
 
-          lwX += dx;
+          lwAt += lwDepthDir*dx;
 
         } else {
           throw cet::exception("GEOM")
@@ -2388,8 +2509,7 @@ namespace mu2e {
       _LeftSXmin            = _config.getDouble("stm.LeftShielding.Left_Xmin");
     }
 
-    // The updated right wall replaces RightShielding. The two read
-    // different keys and a geometry file carries only one set.
+    // The updated right wall replaces RightShielding, as above.
     if (_handstacked) {
       // ---- Right wall -------------------------------------------------
       //
@@ -2401,9 +2521,7 @@ namespace mu2e {
       //     face, flush with the +z side of its last lead layer,
       //   - at that layer's +x, -y corner.
       //
-      // Courses here run along +z and the layers stack along -x, so the
-      // BrickWall directions differ from the front shielding's while the
-      // class is the same.
+      // Courses run along +z and the layers stack along -x.
 
       _RightWallBuild = _config.getBool("stm.RightWall.build");
 
@@ -2463,26 +2581,19 @@ namespace mu2e {
 
       const std::string rwBrickOrient =
         _config.getString("stm.RightWall.brickOrientation");
-      CLHEP::HepRotation rwBrickRot(CLHEP::HepRotation::IDENTITY);
-      {
-        OrientationResolver OR;
-        OR.getRotationFromOrientation(rwBrickRot, rwBrickOrient);
-      }
-      auto rwTypeSpan = [&](int type, CLHEP::Hep3Vector const & dir) {
-        if (type < 1 || type > int(_leadBrickDims.size())) {
-          throw cet::exception("GEOM")
-            << "STMMaker: RightWall names brick type " << type
-            << ", but stm.leadBrick.typeN defines only "
-            << _leadBrickDims.size() << ".\n";
-        }
-        return spanAlong(_leadBrickDims[type-1], rwBrickRot, dir);
-      };
 
-      // Walk the layers inward. Each starts at the -x face of the one
+      // Walk the layers inward. Each starts at the face of the one
       // before it, so a layer's own thickness is the only thing that
       // separates it from the next.
+      //
+      // The cursor is a point rather than an x, and it advances along
+      // depthDir. That way nothing here carries the sign of the walk:
+      // a piece is placed half its own thickness along depthDir from
+      // the cursor and the cursor moves on by the whole thickness,
+      // reading the same in this wall as in the left one that stacks
+      // the other way.
       const int rwLayerN = _config.getInt("stm.RightWall.layerN");
-      double rwX = rwRefX;
+      CLHEP::Hep3Vector rwAt(rwRefX, rwBaseY, rwRefZ);
       int rwLeadLayer = 0;
 
       for (int L = 1; L <= rwLayerN; ++L) {
@@ -2493,52 +2604,24 @@ namespace mu2e {
         if (kind == "Pb") {
           ++rwLeadLayer;
 
-          std::ostringstream nkey;
-          nkey << "stm.RightWall.leadLayer" << rwLeadLayer << "CourseN";
-          const int courseN = _config.getInt(nkey.str());
+          // The layer is one brick deep, and the courses stack by the
+          // brick's own span -- both follow from the rotation, so
+          // neither is given in the config. One orientation for the
+          // whole layer, so the courses state none of their own.
+          std::ostringstream pkey;
+          pkey << "stm.RightWall.leadLayer" << rwLeadLayer;
 
-          // The layer is one brick deep, and the pitch is the brick's
-          // own span up the stack -- both follow from the rotation, so
-          // neither is given in the config.
           double thick = 0.;
-          double pitchAt = 0.;
-
-          std::vector<BrickWallBrick> bricks;
-          for (int c = 1; c <= courseN; ++c) {
-            std::ostringstream ckey;
-            ckey << "stm.RightWall.leadLayer" << rwLeadLayer << "Course" << c;
-            std::vector<int> types;
-            _config.getVectorInt(ckey.str(), types);
-            if (types.empty()) {
-              throw cet::exception("GEOM")
-                << "STMMaker: " << ckey.str() << " is empty.\n";
-            }
-
-            if (thick == 0.) thick = rwTypeSpan(types[0], rwDepthDir);
-            const double step = rwTypeSpan(types[0], rwPitchDir);
-
-            double along = 0.;
-            for (int t : types) {
-              const double w = rwTypeSpan(t, rwCourseDir);
-              BrickWallBrick b;
-              b.type        = t;
-              b.orientation = rwBrickOrient;
-              b.center      = CLHEP::Hep3Vector(rwX, rwBaseY, rwRefZ)
-                            + rwCourseDir*(along + w/2)
-                            + rwPitchDir *(pitchAt + step/2)
-                            + rwDepthDir *(thick/2);
-              bricks.push_back(b);
-              along += w;
-            }
-            pitchAt += step;
-          }
+          const std::vector<BrickWallBrick> bricks =
+            layLayer(_config, pkey.str(), rwAt,
+                     rwCourseDir, rwPitchDir, rwDepthDir,
+                     _leadBrickDims, rwBrickOrient, &thick);
 
           _RightWallLeadLayers.push_back(
-            BrickWall(_RightWallBuild,
-                      CLHEP::Hep3Vector(rwX, rwBaseY, rwRefZ),
+            BrickWall(_RightWallBuild, rwAt,
                       rwCourseDir, rwPitchDir, rwDepthDir,
                       bricks, std::vector<BrickWallBore>()));
-          rwX -= thick;
+          rwAt += rwDepthDir*thick;
 
         } else if (kind == "BPouter") {
           // The L-shaped edge piece, placed by the corner where it
@@ -2552,13 +2635,13 @@ namespace mu2e {
             _config.getDouble("stm.RightWall.edgePoly.thickness");
           _RightWallEdgePrism.orientation =
             _config.getString("stm.RightWall.edgePoly.orientation");
-          // The sweep is centred on the placement point, so the anchor
-          // sits half a thickness inboard of this layer's +x face. As
-          // the layer is on the +x side of the reference point, need to
-          // add half thickness to rwX.
+          // The sweep is centered on the placement point, so the anchor
+          // sits half a thickness inboard of this layer's outer face.
+          // This layer is the one exception to the inward walk: it lies
+          // on the far side of the cursor from the rest, hence the step
+          // AGAINST depthDir.
           _RightWallEdgePrism.anchor =
-            CLHEP::Hep3Vector(rwX + _RightWallEdgePrism.length/2,
-                              rwBaseY, rwRefZ);
+            rwAt - rwDepthDir*(_RightWallEdgePrism.length/2);
 
           const double dx = _config.getDouble("stm.RightWall.outerTopPoly.dx");
           const double dy = _config.getDouble("stm.RightWall.outerTopPoly.dy");
@@ -2569,16 +2652,16 @@ namespace mu2e {
           // Its -z end is flush with the +z side of the L's upright,
           // which stands at the reference, so its z follows from that
           // rather than being given.
-          RightWallSheet s;
+          WallSheet s;
           s.name     = "BPRightWallOuterTopPV";
           s.material = rwPolyMat;
           s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
-          s.center   = CLHEP::Hep3Vector(rwX + dx/2,
-                                         rwBaseY + toBase + dy/2,
-                                         rwRefZ + dz/2);
+          s.center   = rwAt - rwDepthDir*(dx/2)
+                     + CLHEP::Hep3Vector(0., toBase + dy/2, dz/2);
           _RightWallSheets.push_back(s);
 
-          // rwX is not incremented here. Moving to the other side of the reference point.
+          // The cursor is not advanced here: this layer sits on the
+          // other side of the reference point from the inward walk.
 
         } else if (kind == "BPinner") {
           // The longwall below and the top sheet above it, sharing this
@@ -2589,13 +2672,12 @@ namespace mu2e {
           const double lwToBase =
             _config.getDouble("stm.RightWall.longwallPoly.bottomToBase");
 
-          RightWallSheet longwall;
+          WallSheet longwall;
           longwall.name     = "BPRightWallLongwallPV";
           longwall.material = rwPolyMat;
           longwall.halfDim  = CLHEP::Hep3Vector(lwDx/2, lwDy/2, lwDz/2);
-          longwall.center   = CLHEP::Hep3Vector(rwX - lwDx/2,
-                                                rwBaseY + lwToBase + lwDy/2,
-                                                rwRefZ + lwDz/2);
+          longwall.center   = rwAt + rwDepthDir*(lwDx/2)
+                            + CLHEP::Hep3Vector(0., lwToBase + lwDy/2, lwDz/2);
           _RightWallSheets.push_back(longwall);
 
           const double tpDx = _config.getDouble("stm.RightWall.innerTopPoly.dx");
@@ -2604,17 +2686,16 @@ namespace mu2e {
           const double tpToBase =
             _config.getDouble("stm.RightWall.innerTopPoly.bottomToBase");
 
-          RightWallSheet top;
+          WallSheet top;
           top.name     = "BPRightWallInnerTopPV";
           top.material = rwPolyMat;
           top.halfDim  = CLHEP::Hep3Vector(tpDx/2, tpDy/2, tpDz/2);
-          top.center   = CLHEP::Hep3Vector(rwX - tpDx/2,
-                                           rwBaseY + tpToBase + tpDy/2,
-                                           rwRefZ + tpDz/2);
+          top.center   = rwAt + rwDepthDir*(tpDx/2)
+                       + CLHEP::Hep3Vector(0., tpToBase + tpDy/2, tpDz/2);
           _RightWallSheets.push_back(top);
 
           // Both are one plate thick, so either gives the step.
-          rwX -= lwDx;
+          rwAt += rwDepthDir*lwDx;
 
         } else if (kind == "Cu") {
           const double dx = _config.getDouble("stm.RightWall.copperSheet.dx");
@@ -2628,16 +2709,15 @@ namespace mu2e {
           const double fromRefZ =
             _config.getDouble("stm.RightWall.copperSheet.fromRefZ");
 
-          RightWallSheet s;
+          WallSheet s;
           s.name     = "CopperRightWallSheetPV";
           s.material = _config.getString("stm.RightWall.copperSheet.material");
           s.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
-          s.center   = CLHEP::Hep3Vector(rwX - dx/2,
-                                         rwBaseY + toBase + dy/2,
-                                         rwRefZ + fromRefZ + dz/2);
+          s.center   = rwAt + rwDepthDir*(dx/2)
+                     + CLHEP::Hep3Vector(0., toBase + dy/2, fromRefZ + dz/2);
           _RightWallSheets.push_back(s);
 
-          rwX -= dx;
+          rwAt += rwDepthDir*dx;
 
         } else {
           throw cet::exception("GEOM")
@@ -2655,8 +2735,7 @@ namespace mu2e {
       _RightSXmax           = _config.getDouble("stm.RightShielding.Right_Xmax");
     }
 
-    // The updated top wall replaces TopShielding. The two read
-    // different keys and a geometry file carries only one set.
+    // The updated top wall replaces TopShielding, as above.
     if (_handstacked) {
       // ---- Top wall ---------------------------------------------------
       //
@@ -2684,34 +2763,35 @@ namespace mu2e {
       const double twPolyT  = _config.getDouble("stm.TopWall.polySheet1.dy");
       const double twPlateT = _config.getDouble("stm.TopWall.plate.dy");
 
-      // Columns run side by side across the roof and each column runs
+      // Courses run side by side across the roof and each course runs
       // along z. Both step away from the reference, so the directions
       // are negative and the layer hangs below it.
       const CLHEP::Hep3Vector twCourseDir( 0.,  0., 1.);
       const CLHEP::Hep3Vector twPitchDir (-1.,  0., 0.);
       const CLHEP::Hep3Vector twDepthDir ( 0., -1., 0.);
 
-      const std::string twBrickOrient1 =
-        _config.getString("stm.TopWall.brickColumn1Orientation");
-      CLHEP::HepRotation twBrickRot1(CLHEP::HepRotation::IDENTITY);
-      {
-        OrientationResolver OR;
-        OR.getRotationFromOrientation(twBrickRot1, twBrickOrient1);
-      }
       // The bricks lie flat, so the layer's thickness is a brick's 2 in
-      // whichever way the column is turned. Read from the first column.
+      // whichever way the course is turned. Read from the first course,
+      // and needed here rather than from layLayer because the roof's
+      // height is built from the layer thicknesses before any brick is
+      // placed.
       const double twLeadT =
-        spanAlong(_leadBrickDims.at(1), twBrickRot1, twDepthDir);
+        spanAlong(_leadBrickDims.at(1),
+                  rotationFor(_config.getString(
+                    "stm.TopWall.leadLayer1Course1Orientation")),
+                  twDepthDir);
 
       const double twRefY = -_STM_SSCboreToBase
                           + _config.getDouble("stm.TopWall.wallToBase")
                           + twPlateT + twLeadT + twPolyT;
 
-      // Walk the layers downward. Each starts at the underside of the
-      // one before it, so a layer's own thickness is the only thing
-      // that separates it from the next.
+      // Walk the layers downward. Each starts at the face of the one
+      // before it, so a layer's own thickness is the only thing that
+      // separates it from the next. As in the other three walls the
+      // cursor is a point advanced along depthDir, so the placements
+      // below read the same way here as in the wall that stacks up.
       const int twLayerN = _config.getInt("stm.TopWall.layerN");
-      double twY = twRefY;
+      CLHEP::Hep3Vector twAt(twRefX, twRefY, twRefZ);
 
       for (int L = 1; L <= twLayerN; ++L) {
         std::ostringstream key;
@@ -2736,88 +2816,41 @@ namespace mu2e {
             std::ostringstream name;
             name << "BPTopWallSheet" << s << "PV";
 
-            TopWallSheet sheet;
+            WallSheet sheet;
             sheet.name     = name.str();
             sheet.material = twPolyMat;
             sheet.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
-            sheet.center   = CLHEP::Hep3Vector(twRefX - acrossX - dx/2,
-                                               twY - dy/2,
-                                               twRefZ + fromRefZ + dz/2);
+            sheet.center   = twAt
+                           + twPitchDir*(acrossX + dx/2)
+                           + twDepthDir*(dy/2)
+                           + twCourseDir*(fromRefZ + dz/2);
             _TopWallSheets.push_back(sheet);
 
             acrossX += dx;
           }
 
-          twY -= twPolyT;
+          twAt += twDepthDir*twPolyT;
 
         } else if (kind == "Pb") {
-          // Five columns side by side across the roof, each running
+          // Five courses side by side across the roof, each running
           // along z from its own start. Orientation and z offset are
-          // per column, since the first column is turned differently
-          // from the rest and the last two begin further along.
-          const int columnN = _config.getInt("stm.TopWall.brickColumnN");
-
-          std::vector<BrickWallBrick> bricks;
-          double acrossX = 0.;
-
-          for (int c = 1; c <= columnN; ++c) {
-            std::ostringstream ckey, okey, zkey;
-            ckey << "stm.TopWall.brickColumn" << c;
-            okey << "stm.TopWall.brickColumn" << c << "Orientation";
-            zkey << "stm.TopWall.brickColumn" << c << "FromRefZ";
-
-            std::vector<int> types;
-            _config.getVectorInt(ckey.str(), types);
-            if (types.empty()) {
-              throw cet::exception("GEOM")
-                << "STMMaker: " << ckey.str() << " is empty.\n";
-            }
-            const std::string orient = _config.getString(okey.str());
-            const double fromRefZ    = _config.getDouble(zkey.str());
-
-            CLHEP::HepRotation rot(CLHEP::HepRotation::IDENTITY);
-            {
-              OrientationResolver OR;
-              OR.getRotationFromOrientation(rot, orient);
-            }
-            auto span = [&](int type, CLHEP::Hep3Vector const & dir) {
-              if (type < 1 || type > int(_leadBrickDims.size())) {
-                throw cet::exception("GEOM")
-                  << "STMMaker: TopWall names brick type " << type
-                  << ", but stm.leadBrick.typeN defines only "
-                  << _leadBrickDims.size() << ".\n";
-              }
-              return spanAlong(_leadBrickDims[type-1], rot, dir);
-            };
-
-            // The column's width across the roof, from any of its
-            // bricks: they all lie the same way within a column.
-            const double width = span(types[0], twPitchDir);
-
-            double along = 0.;
-            for (int t : types) {
-              const double len = span(t, twCourseDir);
-              BrickWallBrick b;
-              b.type        = t;
-              b.orientation = orient;
-              // Each brick sits half the layer's thickness below the
-              // layer's top.
-              b.center = CLHEP::Hep3Vector(twRefX - acrossX - width/2,
-                                           twY - twLeadT/2,
-                                           twRefZ + fromRefZ + along + len/2);
-              bricks.push_back(b);
-              along += len;
-            }
-            acrossX += width;
-          }
+          // per course, since the first course is turned differently
+          // from the rest and the last two begin further along -- so no
+          // layer-wide orientation is passed.
+          //
+          // The one lead layer, hence leadLayer1 rather than a counter.
+          // The layer hangs below its top, which twDepthDir carries.
+          const std::vector<BrickWallBrick> bricks =
+            layLayer(_config, "stm.TopWall.leadLayer1", twAt,
+                     twCourseDir, twPitchDir, twDepthDir,
+                     _leadBrickDims, "");
 
           _TopWallLeadLayers.push_back(
-            BrickWall(_TopWallBuild,
-                      CLHEP::Hep3Vector(twRefX, twY, twRefZ),
+            BrickWall(_TopWallBuild, twAt,
                       twCourseDir, twPitchDir, twDepthDir,
                       bricks, std::vector<BrickWallBore>()));
 
-          twY -= twLeadT;
+          twAt += twDepthDir*twLeadT;
 
         } else if (kind == "Al") {
           // Two identical plates side by side in z.
@@ -2831,17 +2864,18 @@ namespace mu2e {
             std::ostringstream name;
             name << "AluminumTopWallPlate" << p+1 << "PV";
 
-            TopWallSheet plate;
+            WallSheet plate;
             plate.name     = name.str();
             plate.material = mat;
             plate.halfDim  = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
-            plate.center   = CLHEP::Hep3Vector(twRefX - dx/2,
-                                               twY - dy/2,
-                                               twRefZ + p*dz + dz/2);
+            plate.center   = twAt
+                           + twPitchDir*(dx/2)
+                           + twDepthDir*(dy/2)
+                           + twCourseDir*(p*dz + dz/2);
             _TopWallSheets.push_back(plate);
           }
 
-          twY -= twPlateT;
+          twAt += twDepthDir*twPlateT;
 
         } else {
           throw cet::exception("GEOM")
@@ -2904,11 +2938,27 @@ namespace mu2e {
       const std::string innerCuMat =
         _config.getString("stm.InnerShielding.lining.material");
 
+      // The holes through this section. Stated here rather than taken
+      // from the front shielding so that the section stands on its own:
+      // the bore follows the collimator either way, and this one would
+      // otherwise be unbuildable with the front shielding switched off.
+      _InnerShieldingBores =
+        readBores(_config, "stm.InnerShielding", _STM_SSCoffset_Spot);
+      const size_t innerBoreN = _InnerShieldingBores.size();
+
+      // Which bores a named piece is drilled for.
+      auto innerBores = [&](std::string const & key) {
+        return readPieceBores(_config,
+                              "stm.InnerShielding." + key + ".bores",
+                              innerBoreN,
+                              "stm.InnerShielding." + key);
+      };
+
       // ---- the copper lining ----------------------------------------
       //
       // The left slanted piece starts at the reference; the other five
       // start a step above it. Every piece here is pinned at the
-      // mid-plane of its own height, since an extruded solid is centred
+      // mid-plane of its own height, since an extruded solid is centered
       // on its placement point and the boxes follow the same height.
       const double innerStepUp   = _config.getDouble("stm.InnerShielding.lining.stepUp");
       const double innerCuHeight = _config.getDouble("stm.InnerShielding.lining.height");
@@ -2922,8 +2972,7 @@ namespace mu2e {
                             std::string const & name,
                             std::string const & material,
                             double length,
-                            double y,
-                            bool bored) {
+                            double y) {
         InnerShieldingPrism p;
         p.name     = name;
         p.material = material;
@@ -2935,7 +2984,9 @@ namespace mu2e {
           innerRefX + _config.getDouble("stm.InnerShielding." + key + ".fromRefX"),
           y,
           innerRefZ + _config.getDouble("stm.InnerShielding." + key + ".fromRefZ"));
-        p.bored = bored;
+        // The key says which holes it takes, so the caller no longer
+        // has to; a piece that names none takes none.
+        p.bores = innerBores(key);
         return p;
       };
 
@@ -2944,20 +2995,19 @@ namespace mu2e {
         const double h = _config.getDouble("stm.InnerShielding.liningLeftSlanted.height");
         _InnerShieldingPrisms.push_back(
           innerPrism("liningLeftSlanted", "CopperInnerLeftSlantedPV", innerCuMat,
-                     h, innerRefY + h/2, false));
+                     h, innerRefY + h/2));
       }
 
       // The other three lining prisms, a step up from the reference.
       _InnerShieldingPrisms.push_back(
         innerPrism("liningMidLeftWall", "CopperInnerMidLeftWallPV", innerCuMat,
-                   innerCuHeight, innerCuY, false));
+                   innerCuHeight, innerCuY));
       _InnerShieldingPrisms.push_back(
         innerPrism("liningMidSlanted", "CopperInnerMidSlantedPV", innerCuMat,
-                   innerCuHeight, innerCuY, false));
+                   innerCuHeight, innerCuY));
       _InnerShieldingPrisms.push_back(
         innerPrism("liningMidBack", "CopperInnerMidBackPV", innerCuMat,
-                   innerCuHeight, innerCuY,
-                   _config.getBool("stm.InnerShielding.liningMidBack.bored")));
+                   innerCuHeight, innerCuY));
 
       // The two lining boxes, on that same mid-plane.
       {
@@ -2968,11 +3018,11 @@ namespace mu2e {
         right.material    = innerCuMat;
         right.halfDim     = CLHEP::Hep3Vector(rdx/2, innerCuHeight/2, rdz/2);
         right.center      = CLHEP::Hep3Vector(
-          innerRefX + _config.getDouble("stm.InnerShielding.liningMidRight.centreFromRefX"),
+          innerRefX + _config.getDouble("stm.InnerShielding.liningMidRight.centerFromRefX"),
           innerCuY,
-          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidRight.centreFromRefZ"));
+          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidRight.centerFromRefZ"));
         right.orientation = "000";
-        right.bored       = false;
+        right.bores       = innerBores("liningMidRight");
         right.nudge       = false;
         _InnerShieldingBoxes.push_back(right);
 
@@ -2983,18 +3033,18 @@ namespace mu2e {
         back.material    = innerCuMat;
         back.halfDim     = CLHEP::Hep3Vector(bdx/2, innerCuHeight/2, bdz/2);
         back.center      = CLHEP::Hep3Vector(
-          innerRefX + _config.getDouble("stm.InnerShielding.liningMidBackBox.centreFromRefX"),
+          innerRefX + _config.getDouble("stm.InnerShielding.liningMidBackBox.centerFromRefX"),
           innerCuY,
-          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidBackBox.centreFromRefZ"));
+          innerRefZ + _config.getDouble("stm.InnerShielding.liningMidBackBox.centerFromRefZ"));
         back.orientation = "000";
-        back.bored       = _config.getBool("stm.InnerShielding.liningMidBackBox.bored");
+        back.bores       = innerBores("liningMidBackBox");
         back.nudge       = false;
         _InnerShieldingBoxes.push_back(back);
       }
 
       // ---- the lead -------------------------------------------------
 
-      // The bricks that lie square, each given by its own centre as
+      // The bricks that lie square, each given by its own center as
       // {type, orientation, x, y, z}.
       {
         const int n = _config.getInt("stm.InnerShielding.leadBrickN");
@@ -3017,29 +3067,19 @@ namespace mu2e {
           std::ostringstream orient;
           orient << std::setw(3) << std::setfill('0') << int(v[1]);
 
-          InnerShieldingBrick b;
+          BrickWallBrick b;
           b.type        = type;
           b.orientation = orient.str();
           b.center      = CLHEP::Hep3Vector(innerRefX + v[2],
                                             innerRefY + v[3],
                                             innerRefZ + v[4]);
-          b.bored       = false;
+          // The one on the LaBr axis names that bore; the rest state
+          // no bores key and take none.
+          std::ostringstream bkey;
+          bkey << "leadBrick" << i;
+          b.bores       = innerBores(bkey.str());
           _InnerShieldingBricks.push_back(b);
         }
-      }
-
-      // The bored brick, on the LaBr axis. It lies in the leadBrick
-      // native frame, so it needs no rotation.
-      {
-        InnerShieldingBrick b;
-        b.type        = 2;
-        b.orientation = "000";
-        b.center      = CLHEP::Hep3Vector(
-          innerRefX + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefX"),
-          innerRefY + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefY"),
-          innerRefZ + _config.getDouble("stm.InnerShielding.leadLaBrHole.centreFromRefZ"));
-        b.bored       = true;
-        _InnerShieldingBricks.push_back(b);
       }
 
       // The three turned 45 degrees about y. Stated as boxes because
@@ -3068,11 +3108,13 @@ namespace mu2e {
           // off by its own nudge, since the constant lives there.
           b.halfDim     = CLHEP::Hep3Vector(dx/2, dy/2, dz/2);
           b.center      = CLHEP::Hep3Vector(
-            innerRefX + _config.getDouble(base.str() + ".centreFromRefX"),
-            innerRefY + _config.getDouble(base.str() + ".centreFromRefY"),
-            innerRefZ + _config.getDouble(base.str() + ".centreFromRefZ"));
+            innerRefX + _config.getDouble(base.str() + ".centerFromRefX"),
+            innerRefY + _config.getDouble(base.str() + ".centerFromRefY"),
+            innerRefZ + _config.getDouble(base.str() + ".centerFromRefZ"));
           b.orientation = orient;
-          b.bored       = false;
+          std::ostringstream bkey;
+          bkey << "leadAngledBox" << i;
+          b.bores       = innerBores(bkey.str());
           b.nudge       = true;
           _InnerShieldingBoxes.push_back(b);
         }
@@ -3082,15 +3124,13 @@ namespace mu2e {
       _InnerShieldingPrisms.push_back(
         innerPrism("leadAngled", "LeadInnerAngledPV", _leadBrickMaterial,
                    _config.getDouble("stm.InnerShielding.leadAngled.length"),
-                   innerRefY + _config.getDouble("stm.InnerShielding.leadAngled.fromRefY"),
-                   false));
+                   innerRefY + _config.getDouble("stm.InnerShielding.leadAngled.fromRefY")));
 
       // The bored trapezoid.
       _InnerShieldingPrisms.push_back(
         innerPrism("leadHoleCut", "LeadInnerHoleCutPV", _leadBrickMaterial,
                    _config.getDouble("stm.InnerShielding.leadHoleCut.length"),
-                   innerRefY + _config.getDouble("stm.InnerShielding.leadHoleCut.fromRefY"),
-                   true));
+                   innerRefY + _config.getDouble("stm.InnerShielding.leadHoleCut.fromRefY")));
 
       // The two clipped prisms, above and below the trapezoid. They
       // share one outline and differ only in thickness and height, so
@@ -3118,7 +3158,9 @@ namespace mu2e {
             innerRefX + _config.getDouble(base.str() + ".fromRefX"),
             innerRefY + _config.getDouble(base.str() + ".fromRefY"),
             innerRefZ + _config.getDouble(base.str() + ".fromRefZ"));
-          p.bored       = false;
+          std::ostringstream bkey;
+          bkey << "leadClipped" << i;
+          p.bores       = innerBores(bkey.str());
           _InnerShieldingPrisms.push_back(p);
         }
       }

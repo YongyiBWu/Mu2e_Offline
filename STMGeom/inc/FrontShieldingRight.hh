@@ -51,17 +51,14 @@ namespace mu2e {
     std::vector<double> vVerts;
     double              length;
     std::string         orientation;
-    // Placed by an ANCHOR, not a centre: the outline is drawn in the
+    // Placed by an ANCHOR, not a center: the outline is drawn in the
     // third quadrant so its local origin is the +u end of the long
-    // side, and that corner is what the placement pins. A trapezoid's
-    // centre is not a feature anything lines up with, whereas the
-    // corner sits a stated distance from the brick end.
+    // side, and that corner sits a stated distance from the brick end,
+    // whereas a trapezoid's center lines up with nothing.
     CLHEP::Hep3Vector   anchor;
-    // Which bores pass through the plate, named the same way the
-    // sheets name theirs. The ids matter rather than the order: a bore
-    // may be moved off the beam axis by its own offset, and the
-    // construction code has to read that centre rather than assume
-    // the plate's holes sit where the collimator's do.
+    // Which bores pass through the plate. The ids matter rather than
+    // the order, since a bore may be moved off the beam axis by its own
+    // offset and the construction code must read that center.
     std::vector<int>    bores;
     std::vector<double> holeRadius;    // one per entry in bores
   };
@@ -110,7 +107,7 @@ namespace mu2e {
 
     // The aluminium blocks the wall stands on. They span the same
     // width as the courses and their undersides land on the
-    // baseplate, so their centres are derived, not measured.
+    // baseplate, so their centers are derived, not measured.
     std::string const & blockMaterial() const {return _blockMaterial;}
     CLHEP::Hep3Vector const & blockHalfDim() const {return _blockHalfDim;}
     std::vector<CLHEP::Hep3Vector> const & blockCenter() const {return _blockCenter;}

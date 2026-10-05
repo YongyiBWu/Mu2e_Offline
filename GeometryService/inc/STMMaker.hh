@@ -283,12 +283,9 @@ namespace mu2e {
     std::string _SSCSupportMaterial;
 
     // SSC front shield: the brick wall, the shelf and two poly blocks.
-    // Centres are stored with every offset already applied.
+    // Centers are stored with every offset already applied.
     bool        _SSCFrontShieldBuild;
-    std::vector<CLHEP::Hep3Vector> _SSCFrontShieldBrick2x4x8Center;
-    std::vector<std::string>       _SSCFrontShieldBrick2x4x8Orientation;
-    std::vector<CLHEP::Hep3Vector> _SSCFrontShieldBrick2x4x16Center;
-    std::vector<std::string>       _SSCFrontShieldBrick2x4x16Orientation;
+    std::vector<BrickWallBrick>    _SSCFrontShieldBricks;
     std::string _SSCFrontShieldShelfMaterial;
     CLHEP::Hep3Vector _SSCFrontShieldShelfDim;
     CLHEP::Hep3Vector _SSCFrontShieldShelfCenter;
@@ -309,7 +306,7 @@ namespace mu2e {
     std::vector<BrickWall>                _FrontShieldingRightLeadLayers;
     std::vector<FrontShieldingRightSheet> _FrontShieldingRightSheets;
     // The four blocks are identical, so their material and size are
-    // shared and only their centres vary.
+    // shared and only their centers vary.
     std::string _FrontShieldingRightBlockMaterial;
     CLHEP::Hep3Vector _FrontShieldingRightBlockHalfDim;
     std::vector<CLHEP::Hep3Vector>        _FrontShieldingRightBlockCenter;
@@ -343,22 +340,22 @@ namespace mu2e {
     // Right wall. Five layers worked inward from the reference vertex,
     // expanded in parseConfig so what is held here is already placed.
     bool        _RightWallBuild;
-    std::vector<BrickWall>       _RightWallLeadLayers;
-    std::vector<RightWallSheet>  _RightWallSheets;
-    RightWallEdgePrism           _RightWallEdgePrism;
+    std::vector<BrickWall> _RightWallLeadLayers;
+    std::vector<WallSheet> _RightWallSheets;
+    RightWallEdgePrism     _RightWallEdgePrism;
 
     // Left wall. The same five kinds of layer, without the edge prism.
     bool        _LeftWallBuild;
-    std::vector<BrickWall>      _LeftWallLeadLayers;
-    std::vector<LeftWallSheet>  _LeftWallSheets;
+    std::vector<BrickWall> _LeftWallLeadLayers;
+    std::vector<WallSheet> _LeftWallSheets;
 
     // Top wall. One lead layer laid flat between two pairs of plates.
     bool        _TopWallBuild;
-    std::vector<BrickWall>     _TopWallLeadLayers;
-    std::vector<TopWallSheet>  _TopWallSheets;
+    std::vector<BrickWall> _TopWallLeadLayers;
+    std::vector<WallSheet> _TopWallSheets;
 
     // Bottom wall. The baseplate plus two lead layers and four swept
-    // prisms; each lead layer holds its columns and its strays.
+    // prisms; each lead layer holds its courses and its strays.
     bool        _BottomWallBuild;
     BottomWallPlate               _BottomWallPlate;
     std::vector<BrickWall>        _BottomWallLeadLayers;
@@ -368,7 +365,8 @@ namespace mu2e {
     // placed on its own, so it is three lists rather than a sequence.
     std::vector<InnerShieldingPrism>  _InnerShieldingPrisms;
     std::vector<InnerShieldingBox>    _InnerShieldingBoxes;
-    std::vector<InnerShieldingBrick>  _InnerShieldingBricks;
+    std::vector<BrickWallBrick>       _InnerShieldingBricks;
+    std::vector<BrickWallBore>        _InnerShieldingBores;
 
     bool    _FrontShieldingBuild;
     double  _FrontSHeightofRoom;

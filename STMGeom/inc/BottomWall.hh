@@ -8,12 +8,12 @@
 // prism, a lead layer, the same prism again, a second lead layer, and
 // two copper prisms. 46 pieces, none of them bored.
 //
-// Both lead layers are mostly columns, which a BrickWall describes, but
-// each also carries a few bricks that break the column pattern. Those
-// arrive already placed in the same BrickWall, since a BrickWallBrick
-// holds its own centre and orientation -- the distinction between a
-// column brick and a stray matters only in the config, where one is
-// written as a list and the other as a tuple.
+// Both lead layers are mostly courses, which a BrickWall describes, but
+// each also carries a few bricks that break the pattern. Those arrive
+// already placed in the same BrickWall, since a BrickWallBrick holds
+// its own center and orientation -- course brick or stray matters only
+// in the config, where one is written as a list and the other as a
+// tuple.
 //
 // Every position arrives resolved from STMMaker. The wall is fixed by
 // one reference -- 5 in inboard of the house reference in x, at that
@@ -53,8 +53,8 @@ namespace mu2e {
     std::vector<double> vVerts;
     double              length;        // the sweep, its thickness in y
     std::string         orientation;
-    // Placed by an ANCHOR on the cap's origin, not by a centre. The
-    // sweep is centred on that point, as G4ExtrudedSolid centres an
+    // Placed by an ANCHOR on the cap's origin, not by a center. The
+    // sweep is centered on that point, as G4ExtrudedSolid centers an
     // extrusion on its placement point, so the anchor's y is the
     // mid-plane of the thickness rather than a face.
     CLHEP::Hep3Vector   anchor;
@@ -81,7 +81,7 @@ namespace mu2e {
     BottomWallPlate const & basePlate() const {return _basePlate;}
 
     // The two lead layers, in the order they are stacked. Each holds
-    // its column bricks and its strays together.
+    // its course bricks and its strays together.
     std::vector<BrickWall> const & leadLayers() const {return _leadLayers;}
 
     // The swept pieces, in the order the layers are built: the lower

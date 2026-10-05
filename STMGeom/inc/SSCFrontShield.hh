@@ -7,7 +7,11 @@
 //
 // The bricks themselves are described by LeadBrick, which is shared
 // with every other structure that stacks them; this class says only
-// where they go.
+// which type goes where, in the same BrickWallBrick form the walls
+// use. The geometry file groups them by type because a group shares an
+// offset rule, but by the time they arrive here they are one list:
+// which group a brick came from no longer matters once its offset is
+// resolved.
 //
 // Positions arrive here already resolved. The geometry file writes
 // every center as if the structure sat exactly on the SSC axis, and
@@ -24,16 +28,15 @@
 #include "CLHEP/Vector/Rotation.h"
 #include "CLHEP/Vector/ThreeVector.h"
 
+#include "Offline/STMGeom/inc/BrickWall.hh"
+
 namespace mu2e {
 
   class SSCFrontShield {
   public:
 
     SSCFrontShield(bool build,
-                   std::vector<CLHEP::Hep3Vector> const & brick2x4x8Center,
-                   std::vector<std::string>       const & brick2x4x8Orientation,
-                   std::vector<CLHEP::Hep3Vector> const & brick2x4x16Center,
-                   std::vector<std::string>       const & brick2x4x16Orientation,
+                   std::vector<BrickWallBrick> const & bricks,
                    std::string const & shelfMaterial,
                    CLHEP::Hep3Vector const & shelfDim,
                    CLHEP::Hep3Vector const & shelfCenter,
@@ -46,10 +49,7 @@ namespace mu2e {
                    CLHEP::Hep3Vector const & poly2Center
                    ) :
       _build(build),
-      _brick2x4x8Center(brick2x4x8Center),
-      _brick2x4x8Orientation(brick2x4x8Orientation),
-      _brick2x4x16Center(brick2x4x16Center),
-      _brick2x4x16Orientation(brick2x4x16Orientation),
+      _bricks(bricks),
       _shelfMaterial(shelfMaterial),
       _shelfDim(shelfDim),
       _shelfCenter(shelfCenter),
@@ -67,11 +67,10 @@ namespace mu2e {
 
     bool build() const {return _build;}
 
-    // Where the bricks go. Dimensions and material come from LeadBrick.
-    std::vector<CLHEP::Hep3Vector> const & brick2x4x8Center()  const {return _brick2x4x8Center;}
-    std::vector<std::string>       const & brick2x4x8Orientation() const {return _brick2x4x8Orientation;}
-    std::vector<CLHEP::Hep3Vector> const & brick2x4x16Center() const {return _brick2x4x16Center;}
-    std::vector<std::string>       const & brick2x4x16Orientation() const {return _brick2x4x16Orientation;}
+    // Which brick goes where. Dimensions and material come from
+    // LeadBrick. These carry no bores: the beam opening here is a
+    // course left empty, not a hole through a brick.
+    std::vector<BrickWallBrick> const & bricks() const {return _bricks;}
 
     // Aluminium shelf, carrying the bricks.
     std::string const & shelfMaterial() const {return _shelfMaterial;}
@@ -79,7 +78,7 @@ namespace mu2e {
     CLHEP::Hep3Vector const & shelfCenter() const {return _shelfCenter;}
 
     // The large bored poly block. The bore runs along z through the
-    // full depth, offset from the block centre by (boreDX, boreDY) so
+    // full depth, offset from the block center by (boreDX, boreDY) so
     // that it lands on the SSC axis.
     std::string const & poly1Material() const {return _poly1Material;}
     CLHEP::Hep3Vector const & poly1Dim()    const {return _poly1Dim;}
@@ -101,10 +100,7 @@ namespace mu2e {
 
     bool _build;
 
-    std::vector<CLHEP::Hep3Vector> _brick2x4x8Center;
-    std::vector<std::string>       _brick2x4x8Orientation;
-    std::vector<CLHEP::Hep3Vector> _brick2x4x16Center;
-    std::vector<std::string>       _brick2x4x16Orientation;
+    std::vector<BrickWallBrick> _bricks;
 
     std::string _shelfMaterial;
     CLHEP::Hep3Vector _shelfDim;

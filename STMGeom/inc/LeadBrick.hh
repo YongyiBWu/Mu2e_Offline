@@ -3,29 +3,25 @@
 
 // The standard lead bricks the STM shield house is stacked from.
 //
-// They are a shared primitive rather than a property of any one
-// structure: the same sizes recur throughout the shielding, so their
-// dimensions, material and wear live here and every structure that
-// stacks them refers to this one object.
+// A shared primitive rather than a property of any one structure: the
+// same sizes recur throughout the shielding, so their dimensions,
+// material and wear live here.
 //
-// The sizes are held as a numbered list rather than as named members,
-// so that a course anywhere in the house can be written as a list of
-// type numbers and a new size is a new entry rather than a change to
-// every caller. A type is a SHAPE only -- it carries no orientation,
-// because the same brick lies flat in one wall and stands on end in
-// another, and no bores, because whether a hole passes through a given
-// brick depends on where that brick sits.
+// The sizes are a numbered list rather than named members, so a course
+// anywhere in the house is a list of type numbers and a new size is a
+// new entry rather than a change to every caller. A type is a SHAPE
+// only -- no orientation, since the same brick lies flat in one wall
+// and stands on end in another, and no bores, since which holes pass
+// through a brick depends on where it sits.
 //
 // Wear is taken off each face, so a brick shrinks while staying
-// centred where it was placed. A stack therefore keeps its nominal
-// pitch and the wear opens as gaps between bricks rather than
-// displacing anything. The as-delivered sizes are exact imperial.
+// centered where it was placed: a stack keeps its nominal pitch and
+// the wear opens as gaps. The as-delivered sizes are exact imperial.
 //
-// The wear is not isotropic: one value applies to whichever of the
-// brick's own axes ends up vertical, another to the other two. That
-// means it depends on how the brick is turned, so worn() takes the
-// placement rotation and the construction code needs a solid per
-// (type, orientation) pair rather than one per type.
+// The wear is not isotropic -- one value for whichever of the brick's
+// own axes ends up vertical, another for the other two -- so worn()
+// takes the placement rotation and the construction code needs a solid
+// per (type, orientation) pair.
 //
 // Author: Yongyi Wu
 
@@ -67,11 +63,9 @@ namespace mu2e {
     // The same with the wear taken off each face, in the brick's OWN
     // frame. This is what the G4Box should be built from.
     //
-    // Which of the brick's axes gets the vertical wear depends on how
-    // it is turned, so the placement rotation is needed: the local
-    // axis that rot maps closest to Mu2e y takes wearY and the other
-    // two take wearXZ. For the 90 degree turns used here each local
-    // axis maps exactly onto a Mu2e axis, so the choice is unambiguous.
+    // The local axis that rot maps closest to Mu2e y takes wearY and
+    // the other two take wearXZ. For the 90 degree turns used here each
+    // local axis maps exactly onto a Mu2e axis, so that is unambiguous.
     CLHEP::Hep3Vector worn(int type, CLHEP::HepRotation const & rot) const {
       CLHEP::Hep3Vector const & d = _dims.at(type-1);
       double w[3];

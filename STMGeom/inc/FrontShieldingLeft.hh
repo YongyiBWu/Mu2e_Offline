@@ -31,11 +31,10 @@
 
 namespace mu2e {
 
-  // A poly sheet. These carry no bores -- the beam is in the right
-  // half -- and they need no orientation: the sheets do not all lie
-  // the same way up, but halfDim is already in the Mu2e frame, so
-  // which of the three is the 1 in thickness is read off it rather
-  // than from a rotation applied afterwards.
+  // A poly sheet. No bores, since the beam is in the right half, and
+  // no orientation: these do not all lie the same way up, but halfDim
+  // is already in the Mu2e frame, so which of the three is the 1 in
+  // thickness is read off it.
   struct FrontShieldingLeftSheet {
     std::string       material;
     CLHEP::Hep3Vector halfDim;
@@ -54,13 +53,11 @@ namespace mu2e {
     // is a polygon in its own u/v frame and the rotation is what puts
     // that frame into the Mu2e one.
     std::string         orientation;
-    // Placed by an ANCHOR, not a centre. The outline is drawn so that
-    // the local origin is the prism's RIGHT ANGLE, the corner its two
-    // legs meet at, and that corner is what butts the inner sheet --
-    // its +x face and its -z face. A triangle's centroid lines up
-    // with nothing, so the corner is the only useful handle.
+    // Placed by an ANCHOR, not a center. The local origin is the
+    // prism's RIGHT ANGLE, which is what butts the inner sheet's +x
+    // and -z faces; a triangle's centroid lines up with nothing.
     //
-    // The sweep is centred on the anchor, as G4ExtrudedSolid centres
+    // The sweep is centered on the anchor, as G4ExtrudedSolid centers
     // an extrusion on its placement point, so the anchor's y is the
     // mid-plane of the 6 in and not its top edge.
     CLHEP::Hep3Vector   anchor;

@@ -18,10 +18,12 @@
 // butting against its neighbour rather than from a measurement of its
 // own.
 //
-// This is deliberately its own class rather than a generalisation of
-// RightWall: the two differ by the edge prism today, and whether a
-// shared side-wall description is the right shape is better decided
-// once the top and inner walls are in.
+// Deliberately its own class rather than a generalisation of RightWall:
+// the four walls hold different sets of parts -- this one has no edge
+// prism, the floor has a baseplate and prisms -- so one class would
+// carry empty members for most of them. What they do share is factored
+// out instead: the lead layers through BrickWall and layLayer, the
+// plates through WallSheet.
 //
 // Author: Yongyi Wu
 
@@ -35,26 +37,14 @@
 
 namespace mu2e {
 
-  // A flat sheet: the two poly pairs and the copper sheet. No bores and
-  // no orientation -- halfDim is already in the Mu2e frame, so which of
-  // the three is the thickness is read off it rather than from a
-  // rotation applied afterwards.
-  //
-  // These are not all of one material, so each carries the name its
-  // volume takes, set by STMMaker where which-sheet-is-which is known.
-  struct LeftWallSheet {
-    std::string       name;
-    std::string       material;
-    CLHEP::Hep3Vector halfDim;
-    CLHEP::Hep3Vector center;
-  };
+  // Its flat plates are WallSheet, shared with the other walls.
 
   class LeftWall {
   public:
 
     LeftWall(bool build,
              std::vector<BrickWall> const & leadLayers,
-             std::vector<LeftWallSheet> const & sheets
+             std::vector<WallSheet> const & sheets
              ) :
       _build(build),
       _leadLayers(leadLayers),
@@ -70,7 +60,7 @@ namespace mu2e {
 
     // The flat sheets, in the order the layers are built: the outer
     // longwall and top edge, the inner pair, then the copper sheet.
-    std::vector<LeftWallSheet> const & sheets() const {return _sheets;}
+    std::vector<WallSheet> const & sheets() const {return _sheets;}
 
     // Genreflex can't do persistency of vector<LeftWall> without a
     // default constructor
@@ -80,8 +70,8 @@ namespace mu2e {
 
     bool _build;
 
-    std::vector<BrickWall>     _leadLayers;
-    std::vector<LeftWallSheet> _sheets;
+    std::vector<BrickWall> _leadLayers;
+    std::vector<WallSheet> _sheets;
   };
 
 }
