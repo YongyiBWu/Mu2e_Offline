@@ -1594,6 +1594,10 @@ namespace mu2e {
    // branches below and joined identically afterwards.
    G4VSolid* TungstenSSC1 = nullptr;
    G4VSolid* TungstenSSC2 = nullptr;
+   // The front slab's two bores. Declared here because the air volumes
+   // that fill them (the SSC VDs below) reuse the same solids.
+   G4Tubs* Spot_LaBr1 = nullptr;
+   G4Tubs* Spot_HPGe1 = nullptr;
 
    if (stmgh.handstacked()) {
 
@@ -1607,8 +1611,8 @@ namespace mu2e {
      const double r_HPGe2 = pSTM_SSCParams.r_HPGe_b();
 
      G4Box* TungstenMiddle1 = new G4Box("TungstenMiddle1", W_length/2, W_height/2, Wdepth_f/2);
-     G4Tubs* Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-     G4Tubs* Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
      G4SubtractionSolid* TungstenONEhole1 = new G4SubtractionSolid("TungstenONEhole1", TungstenMiddle1,  Spot_LaBr1, 0, G4ThreeVector(+offset_Spot, 0, 0));
      TungstenSSC1 = new G4SubtractionSolid("TungstenSSC1", TungstenONEhole1, Spot_HPGe1, 0, G4ThreeVector(-offset_Spot, 0, 0));
 
@@ -1633,8 +1637,8 @@ namespace mu2e {
      G4Box* TungstenMiddle1 = new G4Box("TungstenMiddle1", W_middle/2, W_height/2, Wdepth_f/2);
      G4Box* TungstenLeft1   = new G4Box("TungstenLeft1",  delta_WlL/2, W_height/2, Wdepth_f/2);
      G4Box* TungstenRight1  = new G4Box("TungstenRight1", delta_WlR/2, W_height/2, Wdepth_f/2);
-     G4Tubs* Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
-     G4Tubs* Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     Spot_LaBr1 = new G4Tubs("Spot_LaBr1", 0, r_LaBr1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
+     Spot_HPGe1 = new G4Tubs("Spot_HPGe1", 0, r_HPGe1, Wdepth_f/2, 360.*CLHEP::degree, 360.*CLHEP::degree);
      G4SubtractionSolid* TungstenONEhole1 = new G4SubtractionSolid("TungstenONEhole1", TungstenMiddle1,  Spot_LaBr1, 0, G4ThreeVector(+offset_Spot, 0, 0));
      G4SubtractionSolid* TungstenTwohole1 = new G4SubtractionSolid("TungstenTWOhole1", TungstenONEhole1, Spot_HPGe1, 0, G4ThreeVector(-offset_Spot, 0, 0));
      G4UnionSolid* TungstenAdd1 = new G4UnionSolid("TungstenAdd1", TungstenTwohole1, TungstenLeft1, 0, G4ThreeVector(+(W_middle+delta_WlL)/2, 0, 0));
