@@ -1450,10 +1450,10 @@ namespace mu2e {
                                                         placePV,
                                                         doSurfaceCheck
                                                         );
-      } // detector 1 build
       if (verbosityLevel>0){
         std::cout << __func__ << " Warning: Gas not implemented inside STM detector1 can! (so that VD inside can does not overlap with can gas)" << std::endl;
       }
+      } // detector 1 build
 
       //===================== STM Detector 2 ==========================
 
@@ -1550,10 +1550,10 @@ namespace mu2e {
                                                         placePV,
                                                         doSurfaceCheck
                                                           );
-      } // detector 2 build
       if (verbosityLevel>0){
-        std::cout << __func__ << " Warning: Gas not implemented inside STM detector1 can! (so that VD inside can does not overlap with can gas)" << std::endl;
+        std::cout << __func__ << " Warning: Gas not implemented inside STM detector2 can! (so that VD inside can does not overlap with can gas)" << std::endl;
       }
+      } // detector 2 build
 
 
 

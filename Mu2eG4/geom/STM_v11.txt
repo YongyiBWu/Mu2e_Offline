@@ -570,7 +570,8 @@ string stm.FrontShieldingRight.layer4 = "BP";
 string stm.FrontShieldingRight.layer5 = "Pb";
 
 // The lead layers. Each course is a list of stm.leadBrick types read
-// from -x to +x, butted end to end and flush at brickEndX. Layer 2 is
+// from +x to -x (the first type sits at brickEndX), butted end to end
+// and flush at brickEndX. Layer 2 is
 // layer 1 with every course reversed, which is what breaks the joints
 // between layers; layer 3 repeats layer 1 except for its beam course.
 vector<int> stm.FrontShieldingRight.leadLayer1Course1 = {1,2};
@@ -609,7 +610,8 @@ double stm.FrontShieldingRight.bore2OffsetX = 0.000;
 double stm.FrontShieldingRight.bore2OffsetY = 0.000;
 
 // Which bores pass through which brick: {layer, course, position in
-// that course, bore}. A brick absent from this list is solid, and one
+// that course, bore}. Positions count from the +x end, as the courses
+// do. A brick absent from this list is solid, and one
 // appearing twice takes two holes -- so a future brick catching only
 // a single bore is one entry here, not a new brick type.
 //
@@ -773,7 +775,8 @@ double stm.FrontShieldingLeft.edgePoly.dy = 101.600;  //  4 in
 double stm.FrontShieldingLeft.edgePoly.dz =  25.400;  //  1 in
 
 // The two bricks beside the edge sheet: one course of stm.leadBrick
-// types read from -x to +x, in the same form the block columns and the
+// types read from +x to -x (the first type sits at the sheet's +x
+// end), in the same form the block columns and the
 // right half's courses use. They are level with the edge sheet rather
 // than stacked on it, so they take its bottomToBase; STMMaker works
 // out where the course starts.
@@ -781,7 +784,7 @@ vector<int> stm.FrontShieldingLeft.edgeCourse = {2,2};
 string stm.FrontShieldingLeft.edgeCourseOrientation = "000";
 
 // Behind the inner sheet, a grid sharing its x extent: three courses
-// of two 8 in bricks, read -x to +x and stacked -y to +y on a 4 in
+// of two 8 in bricks, read +x to -x and stacked -y to +y on a 4 in
 // pitch. Written as courses.
 int stm.FrontShieldingLeft.innerGridCourseN = 3;
 vector<int> stm.FrontShieldingLeft.innerGridCourse1 = {2,2};
