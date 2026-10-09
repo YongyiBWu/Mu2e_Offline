@@ -5,6 +5,7 @@
 //
 // Author: Anthony Palladino
 // Update: Haichuan Cao August 2023
+// Update: Yongyi Wu Sept-Oct 2026, hand-stacked downstream shielding
 
 
 #include "CLHEP/Vector/ThreeVector.h"

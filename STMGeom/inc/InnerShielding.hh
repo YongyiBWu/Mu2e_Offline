@@ -5,6 +5,7 @@
 //
 // Author: Haichuan Cao
 // Sept 2023
+// Update: Yongyi Wu Sept-Oct 2026, updated (hand-stacked) inner shielding
 
 #include <string>
 #include <vector>

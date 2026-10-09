@@ -3,6 +3,8 @@
 //
 // Author: Anthony Palladino
 // Update: Haichuan Cao Sept 2023
+// Update: Yongyi Wu Sept-Oct 2026, hand-stacked downstream shielding
+//         (stm.downstream.handstacked, STM_v10)
 //
 // Notes
 // See mu2e-doc-XXXX for naming conventions etc.
@@ -43,6 +45,23 @@ namespace mu2e {
 
   namespace {
 
+    // Read a key that only a component being built needs. When it is
+    // built the key is required as usual; when it is not, the geometry
+    // file may leave the key out and it reads as zero or empty, since
+    // nothing is placed from it.
+    double readDoubleIfBuilt(SimpleConfig const & config,
+                             std::string const & key, bool built) {
+      return built ? config.getDouble(key) : config.getDouble(key, 0.);
+    }
+    bool readBoolIfBuilt(SimpleConfig const & config,
+                         std::string const & key, bool built) {
+      return built ? config.getBool(key) : config.getBool(key, false);
+    }
+    std::string readStringIfBuilt(SimpleConfig const & config,
+                                  std::string const & key, bool built) {
+      return built ? config.getString(key) : config.getString(key, "");
+    }
+
     // How far a box reaches along one direction once it has been
     // turned.
     //
@@ -58,13 +77,19 @@ namespace mu2e {
     // dim is in the piece's own frame; rot is the placement rotation;
     // dir is the Mu2e direction asked about, and should be a unit
     // vector.
+    //
+    // constructSTM hands rot to G4PVPlacement as the frame rotation, so
+    // the solid itself is turned by rot^-1: its own axis k lands on
+    // rot^-1 * e_k in Mu2e. For a single 90 degree turn rot and rot^-1
+    // put each axis on the same Mu2e line, so it makes no difference
+    // there; for a two-axis code such as "101" they do not.
     double spanAlong(CLHEP::Hep3Vector const & dim,
                      CLHEP::HepRotation const & rot,
                      CLHEP::Hep3Vector const & dir) {
       double span = 0.;
       for (int k = 0; k < 3; ++k) {
         const CLHEP::Hep3Vector axis =
-          rot * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+          rot.inverse() * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
         span += std::abs(axis.dot(dir)) * dim[k];
       }
       return span;
@@ -118,6 +143,11 @@ namespace mu2e {
         b.radius = config.getDouble(key.str() + "R");
         b.offset = CLHEP::Hep3Vector(config.getDouble(key.str() + "OffsetX"),
                                      config.getDouble(key.str() + "OffsetY"), 0.);
+        if (b.axis != "LaBr" && b.axis != "HPGe") {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << key.str() << "Axis is \"" << b.axis
+            << "\", which is not one of LaBr or HPGe.\n";
+        }
         const double sign = (b.axis == "LaBr") ? +1. : -1.;
         b.center = CLHEP::Hep3Vector(sign*offsetSpot + b.offset.x(),
                                      b.offset.y(), 0.);
@@ -443,7 +473,7 @@ namespace mu2e {
     // If we actually don't want to build the magnet, subtract off the offsets related to the magnet.
     // (We can't just set _magnetHalfLength = 0 in config because it is needed in various parts of constructSTM.cc
     // including to make a G4Box, which cannot have length 0...)
-    if(_config.getBool("stm.magnet.build") == false) {
+    if(!_magnetBuild) {
       _FOVCollimatorOffsetInMu2e -= CLHEP::Hep3Vector(0.0, 0.0, 2*_magnetHalfLength);
     }
 
@@ -697,7 +727,22 @@ namespace mu2e {
 
    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
    /// The geometries below were updated by Haichuan Cao in Sept. 2023
+   /// and by Yongyi Wu in Sept-Oct 2026 for the hand-stacked downstream
+   /// shielding (stm.downstream.handstacked).
 
+    // NOT the point the downstream STM is placed from. constructSTM places
+    // the SSC, its support, the shield house, the detectors and the back
+    // and electronic shielding from its own STMShieldingRef, which is
+    // BackShielding BPThick + ShieldingPipeGap further upstream than this
+    // (east wall inner face - FrontToWall - BPThick - ShieldingPipeGap).
+    //
+    // Of the origins built from this point below, only STM_SSC's is read,
+    // and only as a carrier: constructSTM and VirtualDetectorMaker take it,
+    // subtract Wdepth_f/2 and BPThick + ShieldingPipeGap, and so recover
+    // the reference above. The others (SSCSupport, FrontShielding,
+    // HPGeDetector, LaBrDetector, Bottom/Left/Right/TopShielding,
+    // BackShielding) are stored but not read, and do not match where those
+    // pieces are placed.
     const CLHEP::Hep3Vector  _STMShieldingRef = BeamAxisAtEastWallInMu2e + CLHEP::Hep3Vector(0., 0., -_STM_SSCFrontToWall);
 
    ////////////////////////////////////////////////////////////////
@@ -809,11 +854,11 @@ namespace mu2e {
    // and poly sheets were expanded from the config's type lists in
    // parseConfig, so what is passed on are finished placements.
 
-    // The front shielding's depth and width, used further down by the
-    // Bottom, Left, Right and Top sections. Those are still the earlier
-    // description and are due to be replaced, so these stay zero under
-    // the updated geometry and are set only by the branch that needs
-    // them.
+    // The earlier front shielding's depth and width, used further down
+    // only by the earlier Bottom, Left, Right and Top sections. The
+    // updated walls replace those and place themselves off the right
+    // half instead, so these stay zero under the updated geometry and are
+    // set only by the branch that needs them.
     double _FrontS_Thickness = 0.;
     double _FrontS_Length    = 0.;
 
@@ -1098,7 +1143,12 @@ namespace mu2e {
    //STM Back Shielding
 
 
-      const double Back_dZ = _BottomSfloor_Zlength + _BackSBPThick/2;
+      // Feeds only BackShielding's origin, which nothing reads (see
+      // _STMShieldingRef above). _BottomSfloor_Zlength is set only for the
+      // earlier description, so the updated one uses 0 rather than read it
+      // unset.
+      const double Back_dZ = _handstacked ? 0.
+        : _BottomSfloor_Zlength + _BackSBPThick/2;
 
       const CLHEP::HepRotation _BackSRotation   = CLHEP::HepRotation::IDENTITY;
       const CLHEP::Hep3Vector  _BackSOffsetInMu2e = _STMShieldingRef + CLHEP::Hep3Vector(_BackS_dX, _BackS_dY, Back_dZ);
@@ -1167,7 +1217,6 @@ namespace mu2e {
 
 
     _verbosityLevel            = _config.getInt("stm.verbosityLevel",0);
-    _stmZAllowed               = _config.getDouble("stm.z.allowed");
 
     // The updated, hand-stacked downstream shielding, taken from the NX STEP
     // export of the shield house. One switch for the whole downstream
@@ -1198,18 +1247,27 @@ namespace mu2e {
 
     _stmReferenceZ             = _config.getDouble("stm.referenceZ");  //was previously calculated automatically based on the location of the CRV-D
 
+    // The sweeper magnet. Even when it is not built it is the anchor the
+    // FOV collimator, the shield pipe and the magnet stand are placed
+    // from, so halfLength and halfHeight are always required. The rest
+    // is required only where something uses it: UpStrSpace when the
+    // magnet is not placed off the pipe, the hole when the magnet or the
+    // transport pipe through it is built, and the remainder only when
+    // the magnet itself is built.
     _magnetBuild               = _config.getBool(  "stm.magnet.build",false);
-    _magnetUpStrSpace          = _config.getDouble("stm.magnet.UpStrSpace");
+    _magnetUpStrSpace          = readDoubleIfBuilt(_config, "stm.magnet.UpStrSpace",
+                                                   _magnetBuild || !_config.getBool("stm.magnet.usePipeAsOrigin", false));
     _magnetHalfLength          = _config.getDouble("stm.magnet.halfLength");
-    _magnetHalfWidth           = _config.getDouble("stm.magnet.halfWidth");
+    _magnetHalfWidth           = readDoubleIfBuilt(_config, "stm.magnet.halfWidth", _magnetBuild);
     _magnetHalfHeight          = _config.getDouble("stm.magnet.halfHeight");
-    _magnetHoleHalfWidth       = _config.getDouble("stm.magnet.holeHalfWidth");
-    _magnetHoleHalfHeight      = _config.getDouble("stm.magnet.holeHalfHeight");
+    const bool magnetHoleNeeded = _magnetBuild || _config.getBool("stm.pipe.build", false);
+    _magnetHoleHalfWidth       = readDoubleIfBuilt(_config, "stm.magnet.holeHalfWidth",  magnetHoleNeeded);
+    _magnetHoleHalfHeight      = readDoubleIfBuilt(_config, "stm.magnet.holeHalfHeight", magnetHoleNeeded);
     _magnetHoleXOffset         = _config.getDouble("stm.magnet.holeXOffset", 0.);
     _magnetHoleYOffset         = _config.getDouble("stm.magnet.holeYOffset", 0.);
-    _magnetMaterial            = _config.getString("stm.magnet.material");
+    _magnetMaterial            = readStringIfBuilt(_config, "stm.magnet.material", _magnetBuild);
     _magnetHasLiner            = _config.getBool("stm.magnet.hasLiner", true);
-    _magnetField               = _config.getDouble("stm.magnet.field");
+    _magnetField               = readDoubleIfBuilt(_config, "stm.magnet.field", _magnetBuild);
     //_magnetFieldVisible        = _config.getBool(  "stm.magnet.fieldVisible",false);
     _magnetFieldVisible        = geomOptions->isVisible("stmMagnetField");
 
@@ -1220,37 +1278,48 @@ namespace mu2e {
     _FOVCollimatorHalfHeight       = _config.getDouble("stm.FOVcollimator.halfHeight");
     _FOVCollimatorHalfLength       = _config.getDouble("stm.FOVcollimator.halfLength");
     _FOVCollimatorLinerBuild       = _config.getBool(  "stm.FOVcollimator.liner.build");
-    _FOVCollimatorLinerMaterial    = _config.getString("stm.FOVcollimator.liner.material");
-    _FOVCollimatorLinerHalfWidth   = _config.getDouble("stm.FOVcollimator.liner.halfWidth");
-    _FOVCollimatorLinerHalfHeight  = _config.getDouble("stm.FOVcollimator.liner.halfHeight");
-    _FOVCollimatorLinerHalfLength  = _config.getDouble("stm.FOVcollimator.liner.halfLength");
-    _FOVCollimatorLinerCutOutHalfLength  = _config.getDouble("stm.FOVcollimator.liner.cutOutHalfLength");
-    _FOVCollimatorHole1xOffset     = _config.getDouble("stm.FOVcollimator.hole1.xoffset");
+    // The liner's size and the cutout it sits in also place the poly
+    // absorber, so they are required when either is built. The absorber
+    // switch is read here with the same fallback constructSTM gives it.
+    const bool FOVLinerNeeded = _FOVCollimatorLinerBuild ||
+                                _config.getBool("stm.FOVcollimator.absorber.build", false);
+    _FOVCollimatorLinerMaterial    = readStringIfBuilt(_config, "stm.FOVcollimator.liner.material", _FOVCollimatorLinerBuild);
+    _FOVCollimatorLinerHalfWidth   = readDoubleIfBuilt(_config, "stm.FOVcollimator.liner.halfWidth", FOVLinerNeeded);
+    _FOVCollimatorLinerHalfHeight  = readDoubleIfBuilt(_config, "stm.FOVcollimator.liner.halfHeight", FOVLinerNeeded);
+    _FOVCollimatorLinerHalfLength  = readDoubleIfBuilt(_config, "stm.FOVcollimator.liner.halfLength", FOVLinerNeeded);
+    _FOVCollimatorLinerCutOutHalfLength  = readDoubleIfBuilt(_config, "stm.FOVcollimator.liner.cutOutHalfLength", FOVLinerNeeded);
     _FOVCollimatorHole1RadiusUpStr = _config.getDouble("stm.FOVcollimator.hole1.radiusUpStr");
-    _FOVCollimatorHole1RadiusDnStr = _config.getDouble("stm.FOVcollimator.hole1.radiusDnStr");
-    _FOVCollimatorHole1LinerBuild     = _config.getBool(  "stm.FOVcollimator.hole1.liner.build");
-    _FOVCollimatorHole1LinerThickness = _config.getDouble("stm.FOVcollimator.hole1.liner.thickness");
-    _FOVCollimatorHole2Build       = _config.getBool(  "stm.FOVcollimator.hole2.build");
-    _FOVCollimatorHole2xOffset     = _config.getDouble("stm.FOVcollimator.hole2.xoffset");
-    _FOVCollimatorHole2RadiusUpStr = _config.getDouble("stm.FOVcollimator.hole2.radiusUpStr");
-    _FOVCollimatorHole2RadiusDnStr = _config.getDouble("stm.FOVcollimator.hole2.radiusDnStr");
-    _FOVCollimatorHole2LinerBuild     = _config.getBool(  "stm.FOVcollimator.hole2.liner.build");
-    _FOVCollimatorHole2LinerThickness = _config.getDouble("stm.FOVcollimator.hole2.liner.thickness");
-    _FOVCollimatorHoleLinerMaterial= _config.getString("stm.FOVcollimator.hole.liner.material");
+    // The FOV collimator is a box with one centered hole of radius
+    // hole1.radiusUpStr. STMCollimator is shared with the earlier SS
+    // collimator and carries more, but nothing asks the FOV collimator
+    // for the rest, so it is not read from the geometry file.
+    _FOVCollimatorHole1xOffset        = 0.;
+    _FOVCollimatorHole1RadiusDnStr    = 0.;
+    _FOVCollimatorHole1LinerBuild     = false;
+    _FOVCollimatorHole1LinerThickness = 0.;
+    _FOVCollimatorHole2Build          = false;
+    _FOVCollimatorHole2xOffset        = 0.;
+    _FOVCollimatorHole2RadiusUpStr    = 0.;
+    _FOVCollimatorHole2RadiusDnStr    = 0.;
+    _FOVCollimatorHole2LinerBuild     = false;
+    _FOVCollimatorHole2LinerThickness = 0.;
+    _FOVCollimatorHoleLinerMaterial   = "";
 
-    _pipeBuild                 = _config.getBool(  "stm.pipe.build");
-    _pipeRadiusIn              = _config.getDouble("stm.pipe.rIn");
-    _pipeRadiusOut             = _config.getDouble("stm.pipe.rOut");
-    _pipeMaterial              = _config.getString("stm.pipe.material");
-    _pipeGasMaterial           = _config.getString("stm.pipe.gas.material");
-    _pipeUpStrSpace            = _config.getDouble("stm.pipe.UpStrSpace");
-    _pipeDnStrHalfLength       = _config.getDouble("stm.pipe.DnStrHalfLength");
-    _pipeUpStrWindowMaterial   = _config.getString("stm.pipe.UpStrWindow.material");
-    _pipeUpStrWindowHalfLength = _config.getDouble("stm.pipe.UpStrWindow.halfLength");
-    _pipeDnStrWindowMaterial   = _config.getString("stm.pipe.DnStrWindow.material");
-    _pipeDnStrWindowHalfLength = _config.getDouble("stm.pipe.DnStrWindow.halfLength");
-    _pipeFlangeHalfLength      = _config.getDouble("stm.pipe.flange.halfLength");
-    _pipeFlangeOverhangR       = _config.getDouble("stm.pipe.flange.overhangR");
+    // The transport pipe through the magnet. Its keys are required only
+    // when it is built; nothing else is placed from it.
+    _pipeBuild                 = _config.getBool(  "stm.pipe.build",false);
+    _pipeRadiusIn              = readDoubleIfBuilt(_config, "stm.pipe.rIn", _pipeBuild);
+    _pipeRadiusOut             = readDoubleIfBuilt(_config, "stm.pipe.rOut", _pipeBuild);
+    _pipeMaterial              = readStringIfBuilt(_config, "stm.pipe.material", _pipeBuild);
+    _pipeGasMaterial           = readStringIfBuilt(_config, "stm.pipe.gas.material", _pipeBuild);
+    _pipeUpStrSpace            = readDoubleIfBuilt(_config, "stm.pipe.UpStrSpace", _pipeBuild);
+    _pipeDnStrHalfLength       = readDoubleIfBuilt(_config, "stm.pipe.DnStrHalfLength", _pipeBuild);
+    _pipeUpStrWindowMaterial   = readStringIfBuilt(_config, "stm.pipe.UpStrWindow.material", _pipeBuild);
+    _pipeUpStrWindowHalfLength = readDoubleIfBuilt(_config, "stm.pipe.UpStrWindow.halfLength", _pipeBuild);
+    _pipeDnStrWindowMaterial   = readStringIfBuilt(_config, "stm.pipe.DnStrWindow.material", _pipeBuild);
+    _pipeDnStrWindowHalfLength = readDoubleIfBuilt(_config, "stm.pipe.DnStrWindow.halfLength", _pipeBuild);
+    _pipeFlangeHalfLength      = readDoubleIfBuilt(_config, "stm.pipe.flange.halfLength", _pipeBuild);
+    _pipeFlangeOverhangR       = readDoubleIfBuilt(_config, "stm.pipe.flange.overhangR", _pipeBuild);
 
     _magnetTableBuild          = _config.getBool(  "stm.magnet.stand.build",false);
     _magnetTableMaterial       = _config.getString("stm.magnet.stand.material");
@@ -1259,67 +1328,76 @@ namespace mu2e {
     _magnetTableTopHalfHeight  = _config.getDouble("stm.magnet.stand.topHalfHeight");
     _magnetTableLegRadius      = _config.getDouble("stm.magnet.stand.legRadius");
 
-    _SSCollimatorBuild            = _config.getBool(  "stm.SScollimator.build");
-    _SSCollimatorMaterial         = _config.getString("stm.SScollimator.material");
-    _SSCollimatorUpStrSpace       = _config.getDouble("stm.SScollimator.UpStrSpace");
-    _SSCollimatorHalfWidth        = _config.getDouble("stm.SScollimator.halfWidth");
-    _SSCollimatorHalfHeight       = _config.getDouble("stm.SScollimator.halfHeight");
-    _SSCollimatorHalfLength       = _config.getDouble("stm.SScollimator.halfLength");
-    _SSCollimatorLinerBuild       = _config.getBool(  "stm.SScollimator.liner.build");
-    _SSCollimatorLinerMaterial    = _config.getString("stm.SScollimator.liner.material");
-    _SSCollimatorLinerHalfWidth   = _config.getDouble("stm.SScollimator.liner.halfWidth");
-    _SSCollimatorLinerHalfHeight  = _config.getDouble("stm.SScollimator.liner.halfHeight");
-    _SSCollimatorLinerHalfLength  = _config.getDouble("stm.SScollimator.liner.halfLength");
-    _SSCollimatorLinerCutOutHalfLength  = _config.getDouble("stm.SScollimator.liner.cutOutHalfLength");
-    _SSCollimatorHole1xOffset     = _config.getDouble("stm.SScollimator.hole1.xoffset");
-    _SSCollimatorHole1RadiusUpStr = _config.getDouble("stm.SScollimator.hole1.radiusUpStr");
-    _SSCollimatorHole1RadiusDnStr = _config.getDouble("stm.SScollimator.hole1.radiusDnStr");
-    _SSCollimatorHole1LinerBuild     = _config.getBool(  "stm.SScollimator.hole1.liner.build");
-    _SSCollimatorHole1LinerThickness = _config.getDouble("stm.SScollimator.hole1.liner.thickness");
-    _SSCollimatorHole2Build       = _config.getBool(  "stm.SScollimator.hole2.build");
-    _SSCollimatorHole2xOffset     = _config.getDouble("stm.SScollimator.hole2.xoffset");
-    _SSCollimatorHole2RadiusUpStr = _config.getDouble("stm.SScollimator.hole2.radiusUpStr");
-    _SSCollimatorHole2RadiusDnStr = _config.getDouble("stm.SScollimator.hole2.radiusDnStr");
-    _SSCollimatorHole2LinerBuild     = _config.getBool(  "stm.SScollimator.hole2.liner.build");
-    _SSCollimatorHole2LinerThickness = _config.getDouble("stm.SScollimator.hole2.liner.thickness");
-    _SSCollimatorHoleLinerMaterial = _config.getString("stm.SScollimator.hole.liner.material");
+    // The earlier lead SS collimator, its detector stand and the two Ge
+    // detectors, none of which the current geometry builds. Their keys
+    // are required only when the component is built.
+    _SSCollimatorBuild            = _config.getBool(  "stm.SScollimator.build",false);
+    _SSCollimatorMaterial         = readStringIfBuilt(_config, "stm.SScollimator.material", _SSCollimatorBuild);
+    _SSCollimatorUpStrSpace       = readDoubleIfBuilt(_config, "stm.SScollimator.UpStrSpace", _SSCollimatorBuild);
+    _SSCollimatorHalfWidth        = readDoubleIfBuilt(_config, "stm.SScollimator.halfWidth", _SSCollimatorBuild);
+    _SSCollimatorHalfHeight       = readDoubleIfBuilt(_config, "stm.SScollimator.halfHeight", _SSCollimatorBuild);
+    _SSCollimatorHalfLength       = readDoubleIfBuilt(_config, "stm.SScollimator.halfLength", _SSCollimatorBuild);
+    _SSCollimatorLinerBuild       = readBoolIfBuilt(_config, "stm.SScollimator.liner.build", _SSCollimatorBuild);
+    _SSCollimatorLinerMaterial    = readStringIfBuilt(_config, "stm.SScollimator.liner.material", _SSCollimatorBuild);
+    _SSCollimatorLinerHalfWidth   = readDoubleIfBuilt(_config, "stm.SScollimator.liner.halfWidth", _SSCollimatorBuild);
+    _SSCollimatorLinerHalfHeight  = readDoubleIfBuilt(_config, "stm.SScollimator.liner.halfHeight", _SSCollimatorBuild);
+    _SSCollimatorLinerHalfLength  = readDoubleIfBuilt(_config, "stm.SScollimator.liner.halfLength", _SSCollimatorBuild);
+    _SSCollimatorLinerCutOutHalfLength  = readDoubleIfBuilt(_config, "stm.SScollimator.liner.cutOutHalfLength", _SSCollimatorBuild);
+    _SSCollimatorHole1xOffset     = readDoubleIfBuilt(_config, "stm.SScollimator.hole1.xoffset", _SSCollimatorBuild);
+    _SSCollimatorHole1RadiusUpStr = readDoubleIfBuilt(_config, "stm.SScollimator.hole1.radiusUpStr", _SSCollimatorBuild);
+    _SSCollimatorHole1RadiusDnStr = readDoubleIfBuilt(_config, "stm.SScollimator.hole1.radiusDnStr", _SSCollimatorBuild);
+    _SSCollimatorHole1LinerBuild     = readBoolIfBuilt(_config, "stm.SScollimator.hole1.liner.build", _SSCollimatorBuild);
+    _SSCollimatorHole1LinerThickness = readDoubleIfBuilt(_config, "stm.SScollimator.hole1.liner.thickness", _SSCollimatorBuild);
+    _SSCollimatorHole2Build       = readBoolIfBuilt(_config, "stm.SScollimator.hole2.build", _SSCollimatorBuild);
+    _SSCollimatorHole2xOffset     = readDoubleIfBuilt(_config, "stm.SScollimator.hole2.xoffset", _SSCollimatorBuild);
+    _SSCollimatorHole2RadiusUpStr = readDoubleIfBuilt(_config, "stm.SScollimator.hole2.radiusUpStr", _SSCollimatorBuild);
+    _SSCollimatorHole2RadiusDnStr = readDoubleIfBuilt(_config, "stm.SScollimator.hole2.radiusDnStr", _SSCollimatorBuild);
+    _SSCollimatorHole2LinerBuild     = readBoolIfBuilt(_config, "stm.SScollimator.hole2.liner.build", _SSCollimatorBuild);
+    _SSCollimatorHole2LinerThickness = readDoubleIfBuilt(_config, "stm.SScollimator.hole2.liner.thickness", _SSCollimatorBuild);
+    _SSCollimatorHoleLinerMaterial = readStringIfBuilt(_config, "stm.SScollimator.hole.liner.material", _SSCollimatorBuild);
 
     _detectorTableBuild          = _config.getBool(  "stm.detector.stand.build",false);
-    _detectorTableMaterial       = _config.getString("stm.detector.stand.material");
-    _detectorTableTopExtraWidth  = _config.getDouble("stm.detector.stand.topExtraWidth");
-    _detectorTableTopExtraLength = _config.getDouble("stm.detector.stand.topExtraLength");
-    _detectorTableTopHalfHeight  = _config.getDouble("stm.detector.stand.topHalfHeight");
-    _detectorTableLegRadius      = _config.getDouble("stm.detector.stand.legRadius");
+    _detectorTableMaterial       = readStringIfBuilt(_config, "stm.detector.stand.material", _detectorTableBuild);
+    _detectorTableTopExtraWidth  = readDoubleIfBuilt(_config, "stm.detector.stand.topExtraWidth", _detectorTableBuild);
+    _detectorTableTopExtraLength = readDoubleIfBuilt(_config, "stm.detector.stand.topExtraLength", _detectorTableBuild);
+    _detectorTableTopHalfHeight  = readDoubleIfBuilt(_config, "stm.detector.stand.topHalfHeight", _detectorTableBuild);
+    _detectorTableLegRadius      = readDoubleIfBuilt(_config, "stm.detector.stand.legRadius", _detectorTableBuild);
 
     _detector1Build                    = _config.getBool(  "stm.det1.build",false);
-    _detector1CrystalMaterial          = _config.getString("stm.det1.material");
-    _detector1CrystalRadiusIn          = _config.getDouble("stm.det1.rIn");
-    _detector1CrystalRadiusOut         = _config.getDouble("stm.det1.rOut");
-    _detector1CrystalHalfLength        = _config.getDouble("stm.det1.halfLength");
-    _detector1xOffset                  = _config.getDouble("stm.det1.xoffset");
-    _detector1CanMaterial              = _config.getString("stm.det1.can.material");
-    _detector1CanRadiusIn              = _config.getDouble("stm.det1.can.rIn");
-    _detector1CanRadiusOut             = _config.getDouble("stm.det1.can.rOut");
-    _detector1CanHalfLength            = _config.getDouble("stm.det1.can.halfLength");
-    _detector1CanUpStrSpace            = _config.getDouble("stm.det1.can.UpStrSpace");
-    _detector1CanUpStrWindowMaterial   = _config.getString("stm.det1.can.UpStrWindowMaterial");
-    _detector1CanUpStrWindowHalfLength = _config.getDouble("stm.det1.can.UpStrWindowHalfLength");
-    _detector1CanGasMaterial           = _config.getString("stm.det1.can.gas");
+    _detector1CrystalMaterial          = readStringIfBuilt(_config, "stm.det1.material", _detector1Build);
+    _detector1CrystalRadiusIn          = readDoubleIfBuilt(_config, "stm.det1.rIn", _detector1Build);
+    _detector1CrystalRadiusOut         = readDoubleIfBuilt(_config, "stm.det1.rOut", _detector1Build);
+    _detector1CrystalHalfLength        = readDoubleIfBuilt(_config, "stm.det1.halfLength", _detector1Build);
+    _detector1xOffset                  = readDoubleIfBuilt(_config, "stm.det1.xoffset", _detector1Build);
+    _detector1CanMaterial              = readStringIfBuilt(_config, "stm.det1.can.material", _detector1Build);
+    _detector1CanRadiusIn              = readDoubleIfBuilt(_config, "stm.det1.can.rIn", _detector1Build);
+    _detector1CanRadiusOut             = readDoubleIfBuilt(_config, "stm.det1.can.rOut", _detector1Build);
+    _detector1CanHalfLength            = readDoubleIfBuilt(_config, "stm.det1.can.halfLength", _detector1Build);
+    _detector1CanUpStrSpace            = readDoubleIfBuilt(_config, "stm.det1.can.UpStrSpace", _detector1Build);
+    _detector1CanUpStrWindowMaterial   = readStringIfBuilt(_config, "stm.det1.can.UpStrWindowMaterial", _detector1Build);
+    _detector1CanUpStrWindowHalfLength = readDoubleIfBuilt(_config, "stm.det1.can.UpStrWindowHalfLength", _detector1Build);
+    _detector1CanGasMaterial           = readStringIfBuilt(_config, "stm.det1.can.gas", _detector1Build);
 
     _detector2Build                    = _config.getBool(  "stm.det2.build",false);
-    _detector2CrystalMaterial          = _config.getString("stm.det2.material");
-    _detector2CrystalRadiusIn          = _config.getDouble("stm.det2.rIn");
-    _detector2CrystalRadiusOut         = _config.getDouble("stm.det2.rOut");
-    _detector2CrystalHalfLength        = _config.getDouble("stm.det2.halfLength");
-    _detector2xOffset                  = _config.getDouble("stm.det2.xoffset");
-    _detector2CanMaterial              = _config.getString("stm.det2.can.material");
-    _detector2CanRadiusIn              = _config.getDouble("stm.det2.can.rIn");
-    _detector2CanRadiusOut             = _config.getDouble("stm.det2.can.rOut");
-    _detector2CanHalfLength            = _config.getDouble("stm.det2.can.halfLength");
-    _detector2CanUpStrSpace            = _config.getDouble("stm.det2.can.UpStrSpace");
-    _detector2CanUpStrWindowMaterial   = _config.getString("stm.det2.can.UpStrWindowMaterial");
-    _detector2CanUpStrWindowHalfLength = _config.getDouble("stm.det2.can.UpStrWindowHalfLength");
-    _detector2CanGasMaterial           = _config.getString("stm.det2.can.gas");
+    _detector2CrystalMaterial          = readStringIfBuilt(_config, "stm.det2.material", _detector2Build);
+    _detector2CrystalRadiusIn          = readDoubleIfBuilt(_config, "stm.det2.rIn", _detector2Build);
+    _detector2CrystalRadiusOut         = readDoubleIfBuilt(_config, "stm.det2.rOut", _detector2Build);
+    _detector2CrystalHalfLength        = readDoubleIfBuilt(_config, "stm.det2.halfLength", _detector2Build);
+    _detector2xOffset                  = readDoubleIfBuilt(_config, "stm.det2.xoffset", _detector2Build);
+    _detector2CanMaterial              = readStringIfBuilt(_config, "stm.det2.can.material", _detector2Build);
+    _detector2CanRadiusIn              = readDoubleIfBuilt(_config, "stm.det2.can.rIn", _detector2Build);
+    _detector2CanRadiusOut             = readDoubleIfBuilt(_config, "stm.det2.can.rOut", _detector2Build);
+    _detector2CanHalfLength            = readDoubleIfBuilt(_config, "stm.det2.can.halfLength", _detector2Build);
+    _detector2CanUpStrSpace            = readDoubleIfBuilt(_config, "stm.det2.can.UpStrSpace", _detector2Build);
+    _detector2CanUpStrWindowMaterial   = readStringIfBuilt(_config, "stm.det2.can.UpStrWindowMaterial", _detector2Build);
+    _detector2CanUpStrWindowHalfLength = readDoubleIfBuilt(_config, "stm.det2.can.UpStrWindowHalfLength", _detector2Build);
+    _detector2CanGasMaterial           = readStringIfBuilt(_config, "stm.det2.can.gas", _detector2Build);
+
+    // The z budget measured upstream from the east hall wall. Only the
+    // four components above are placed from it.
+    _stmZAllowed = readDoubleIfBuilt(_config, "stm.z.allowed",
+                                     _SSCollimatorBuild || _detectorTableBuild ||
+                                     _detector1Build    || _detector2Build);
 
     _shieldBuild                = _config.getBool(  "stm.shield.build",false);
     _shieldRadiusIn             = _config.getDouble("stm.shield.rIn");
@@ -1332,14 +1410,20 @@ namespace mu2e {
     _shieldMatchPipeBlock       = _config.getBool  ("stm.shield.matchPipeBlock", false);
     _shieldUpStrSpace           = _config.getDouble("stm.shield.UpStrSpace");
     _shieldDnStrSpace           = _config.getDouble("stm.shield.DnStrSpace");
-    _shieldDnStrWallHalfLength  = _config.getDouble("stm.shield.DnStrWall.halfLength");
+    // The mating block (DnStrWall). Its thickness is required only when
+    // it is built; without it the block has no extent, so it adds no
+    // length to the magnet stand and no offset to the magnet when the
+    // pipe is not matched to it. The other DnStrWall keys already fall
+    // back when absent. The switch itself still defaults to true for
+    // older geometry files, so a file without the block must say so.
+    _shieldBuildMatingBlock     = _config.getBool("stm.shield.matingBlock.build", true); // default to true because that is what older versions did
+    _shieldDnStrWallHalfLength  = readDoubleIfBuilt(_config, "stm.shield.DnStrWall.halfLength", _shieldBuildMatingBlock);
     _shieldDnStrWallHoleRadius  = _config.getDouble("stm.shield.DnStrWall.holeRadius", -1.);
     _shieldDnStrWallHalfHeight  = _config.getDouble("stm.shield.DnStrWall.halfHeight", -1.);
     _shieldDnStrWallHalfWidth   = _config.getDouble("stm.shield.DnStrWall.halfWidth", -1.);
     _shieldDnStrWallGap         = _config.getDouble("stm.shield.DnStrWall.gap", 0.);
     _shieldUpStrWallGap         = _config.getDouble("stm.shield.UpStrWall.gap", 0.); //only if using pipe as origin
     _shieldDnStrWallMaterial    = _config.getString("stm.shield.DnStrWall.material", _shieldMaterial);
-    _shieldBuildMatingBlock     = _config.getBool("stm.shield.matingBlock.build", true); // default to true because that is what older versions did
     _shieldPipeUpStrAirGap      = _config.getDouble("stm.shield.pipe.upStrAirGap", 0); // default to 0 for backwards compatibility
 
     _stmDnStrEnvBuild       = _config.getBool("stm.downstream.build");
@@ -1581,8 +1665,11 @@ namespace mu2e {
       const int fsrBoreN = int(fsrBores.size());
 
       // Which bores go through which brick: {layer, course, position,
-      // bore}, one entry per hole.
-      struct FSRBoreMapEntry { int layer, course, position, bore; };
+      // bore}, one entry per hole. `used` is set when the entry matches a
+      // brick as the layers are laid; an entry naming a layer, course or
+      // position that has no brick would otherwise be skipped silently,
+      // leaving that brick solid.
+      struct FSRBoreMapEntry { int layer, course, position, bore; bool used; };
       std::vector<FSRBoreMapEntry> fsrBoreMap;
       const int fsrBoreMapN = _config.getInt("stm.FrontShieldingRight.leadBoreMapN");
       for (int i = 1; i <= fsrBoreMapN; ++i) {
@@ -1590,7 +1677,7 @@ namespace mu2e {
         key << "stm.FrontShieldingRight.leadBoreMap" << i;
         std::vector<int> e;
         _config.getVectorInt(key.str(), e, 4);
-        fsrBoreMap.push_back({e[0], e[1], e[2], e[3]});
+        fsrBoreMap.push_back({e[0], e[1], e[2], e[3], false});
       }
 
       // Courses, numbered so that n = 0 is the one the beam passes
@@ -1643,12 +1730,13 @@ namespace mu2e {
       // so it has to be projected through the rotation just as the
       // dimensions are. Needed by the bore guard, which has to compare
       // against the solid the hole is actually cut from, not the
-      // as-delivered brick.
+      // as-delivered brick. The brick's own axis k lands on
+      // rot^-1 * e_k in Mu2e, as in spanAlong.
       auto fsrWearAlong = [&](CLHEP::Hep3Vector const & dir) {
         double w = 0.;
         for (int k = 0; k < 3; ++k) {
           const CLHEP::Hep3Vector axis =
-            fsrBrickRot * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+            fsrBrickRot.inverse() * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
           w += std::abs(axis.dot(dir))
              * ((std::abs(axis.y()) > 0.5) ? _leadBrickWearY : _leadBrickWearXZ);
         }
@@ -1714,10 +1802,11 @@ namespace mu2e {
             fsrCourseBores.context         = "stm.FrontShieldingRight.leadBoreMap";
             fsrCourseBores.at = [&, c](int position) {
               std::vector<int> ids;
-              for (auto const & e : fsrBoreMap) {
+              for (auto & e : fsrBoreMap) {
                 if (e.layer == fsrLeadLayer && e.course == int(c)+1
                     && e.position == position) {
                   ids.push_back(e.bore);
+                  e.used = true;
                 }
               }
               return ids;
@@ -1771,7 +1860,16 @@ namespace mu2e {
         } else {
           // A sheet layer: two plates split at the beam, sharing the
           // courses' footprint. The lower one carries the bores.
-          const double top = (fsrCourse.back() + 1)*fsrPitch - fsrPitch/2;
+          //
+          // The pair's top edge is level with the top face of the lead
+          // stack beside it. That top face belongs to the highest lead
+          // course, which is centred at fsrCourseOffsetY + nTop*fsrPitch
+          // and is one pitch tall, so it sits half a pitch above that
+          // center. The sheets then hang down from there by their own
+          // heights, dyUpper and dyLower.
+          const int fsrTopCourse =
+            *std::max_element(fsrCourse.begin(), fsrCourse.end());
+          const double top = fsrCourseOffsetY + fsrTopCourse*fsrPitch + fsrPitch/2;
           const double bot = top - (fsrSheetLo + fsrSheetUp);
 
           FrontShieldingRightSheet lower;
@@ -1797,6 +1895,20 @@ namespace mu2e {
           _FrontShieldingRightSheets.push_back(upper);
 
           fsrZ += fsrSheetT;
+        }
+      }
+
+      // Every bore-map entry should have matched a brick by now.
+      for (size_t i = 0; i < fsrBoreMap.size(); ++i) {
+        FSRBoreMapEntry const & e = fsrBoreMap[i];
+        if (!e.used) {
+          throw cet::exception("GEOM")
+            << "STMMaker: stm.FrontShieldingRight.leadBoreMap" << i+1
+            << " = {" << e.layer << ", " << e.course << ", " << e.position
+            << ", " << e.bore << "} names lead layer " << e.layer
+            << ", course " << e.course << ", position " << e.position
+            << ", but no brick is there (" << fsrLeadLayer << " lead layers, "
+            << fsrCourse.size() << " courses each).\n";
         }
       }
 
@@ -2775,11 +2887,17 @@ namespace mu2e {
       // and needed here rather than from layLayer because the roof's
       // height is built from the layer thicknesses before any brick is
       // placed.
+      std::vector<int> twCourse1Types;
+      _config.getVectorInt("stm.TopWall.leadLayer1Course1", twCourse1Types);
+      if (twCourse1Types.empty()) {
+        throw cet::exception("GEOM")
+          << "STMMaker: stm.TopWall.leadLayer1Course1 is an empty course.\n";
+      }
       const double twLeadT =
-        spanAlong(_leadBrickDims.at(1),
+        brickSpan(_leadBrickDims, twCourse1Types[0],
                   rotationFor(_config.getString(
                     "stm.TopWall.leadLayer1Course1Orientation")),
-                  twDepthDir);
+                  twDepthDir, "stm.TopWall.leadLayer1Course1");
 
       const double twRefY = -_STM_SSCboreToBase
                           + _config.getDouble("stm.TopWall.wallToBase")
@@ -2844,6 +2962,23 @@ namespace mu2e {
             layLayer(_config, "stm.TopWall.leadLayer1", twAt,
                      twCourseDir, twPitchDir, twDepthDir,
                      _leadBrickDims, "");
+
+          // The roof's height was built from twLeadT, read off the first
+          // brick of course 1, before any brick was laid. Every brick in
+          // the layer has to be that thick in y, or the layer would poke
+          // into the plates below or the poly above.
+          for (auto const & b : bricks) {
+            const double t = brickSpan(_leadBrickDims, b.type,
+                                       rotationFor(b.orientation), twDepthDir,
+                                       "stm.TopWall.leadLayer1");
+            if (std::abs(t - twLeadT) > 0.001) {
+              throw cet::exception("GEOM")
+                << "STMMaker: a stm.TopWall.leadLayer1 brick (type " << b.type
+                << ", orientation " << b.orientation << ") is " << t
+                << " mm thick in y, but the roof's height was built from "
+                << twLeadT << " mm, the thickness of course 1's first brick.\n";
+            }
+          }
 
           _TopWallLeadLayers.push_back(
             BrickWall(_TopWallBuild, twAt,
@@ -2916,6 +3051,65 @@ namespace mu2e {
     _BackS_dX             = _config.getDouble("stm.BackShielding.BackS_dX");
     _BackS_dY             = _config.getDouble("stm.BackShielding.BackS_dY");
     _BackSPipeGap         = _config.getDouble("stm.BackShielding.ShieldingPipeGap");
+
+    // FrontToWall against the house as built.
+    //
+    // The earlier description placed the back poly off the house's own
+    // length, so when FrontToWall disagreed with it the poly stopped short
+    // of the hall wall, leaving space downstream of it (122.1 mm in
+    // STM_v09). The updated one places the poly off FrontToWall instead
+    // (see constructSTM), so its back face is always on the hall wall --
+    // and a disagreement moves into the cable gap: lead to poly becomes
+    // FrontToWall + ShieldingPipeGap - (where the lead actually ends)
+    // rather than ShieldingPipeGap. This holds FrontToWall to the house.
+    //
+    // FrontToWall is defined against the back of the house LEAD, so only
+    // the lead of the four walls is held to it; sheets and plates may
+    // reach past it, as the top wall's aluminium plates do by design.
+    if (_handstacked) {
+      const double dimTolerance = 0.001;  // mm
+      const CLHEP::Hep3Vector zDir(0., 0., 1.);
+
+      double leadBackZ = -1.e30;
+      for (auto const * layers : {&_RightWallLeadLayers, &_LeftWallLeadLayers,
+                                  &_TopWallLeadLayers,   &_BottomWallLeadLayers}) {
+        for (auto const & layer : *layers) {
+          for (auto const & b : layer.bricks()) {
+            const double half = brickSpan(_leadBrickDims, b.type,
+                                          rotationFor(b.orientation), zDir,
+                                          "the shield house") / 2.;
+            leadBackZ = std::max(leadBackZ, b.center.z() + half);
+          }
+        }
+      }
+
+      const double gap = _STM_SSCFrontToWall + _BackSPipeGap - leadBackZ;
+
+      if (leadBackZ > _STM_SSCFrontToWall + dimTolerance) {
+        throw cet::exception("GEOM")
+          << "STMMaker: the shield house lead ends at z = " << leadBackZ
+          << " mm from the cradle front, "
+          << leadBackZ - _STM_SSCFrontToWall << " mm past"
+          << " stm.STM_SSC.FrontToWall (" << _STM_SSCFrontToWall << " mm).\n"
+          << "The cable gap behind the lead is " << gap
+          << " mm instead of ShieldingPipeGap (" << _BackSPipeGap << " mm)."
+          << " Check FrontToWall against the walls' reference z and course"
+          << " lengths.\n";
+      }
+      else if (leadBackZ < _STM_SSCFrontToWall - dimTolerance) {
+        mf::LogWarning("GEOM")
+          << "STMMaker: the shield house lead ends at z = " << leadBackZ
+          << " mm, " << _STM_SSCFrontToWall - leadBackZ << " mm short of"
+          << " stm.STM_SSC.FrontToWall (" << _STM_SSCFrontToWall << " mm), so"
+          << " the cable gap behind it is " << gap
+          << " mm instead of ShieldingPipeGap (" << _BackSPipeGap << " mm).\n";
+      }
+      else if (_verbosityLevel > 0) {
+        mf::LogInfo("GEOM")
+          << "STMMaker: the shield house lead ends at FrontToWall (<"
+          << dimTolerance << " mm), at z = " << leadBackZ << " mm.\n";
+      }
+    }
 
 
     _InnerShieldingBuild        = _config.getBool("stm.InnerShielding.build");
@@ -3163,6 +3357,117 @@ namespace mu2e {
           p.bores       = innerBores(bkey.str());
           _InnerShieldingPrisms.push_back(p);
         }
+      }
+
+      // ---- bore fit check ------------------------------------------
+      //
+      // As for the front shielding's bricks: every hole a piece names
+      // must lie inside that piece across the beam, or the subtraction
+      // clips only part of the hole -- or nothing -- and the beam sees
+      // solid material with nothing to say so. Each piece's x and y
+      // extent below is the one the hole has to clear over the piece's
+      // whole depth along the beam.
+      const CLHEP::Hep3Vector xDir(1., 0., 0.), yDir(0., 1., 0.), zDir(0., 0., 1.);
+      auto checkFit = [&](std::string const & what,
+                          double xlo, double xhi, double ylo, double yhi,
+                          std::vector<int> const & bores) {
+        for (int id : bores) {
+          BrickWallBore const & b = _InnerShieldingBores.at(id-1);
+          if (b.center.x() - b.radius < xlo || b.center.x() + b.radius > xhi ||
+              b.center.y() - b.radius < ylo || b.center.y() + b.radius > yhi) {
+            throw cet::exception("GEOM")
+              << "STMMaker: bore " << id << " (" << b.axis << ", radius "
+              << b.radius << " at x = " << b.center.x() << ", y = "
+              << b.center.y() << ") does not fit " << what
+              << ", which spans x [" << xlo << ", " << xhi << "] and y ["
+              << ylo << ", " << yhi << "] mm.\n";
+          }
+        }
+      };
+
+      // Bricks: the worn solid the hole is cut from. Each of the brick's
+      // own axes lands on rot^-1 * e_k (as in spanAlong) and loses the
+      // wear for whichever Mu2e direction it lands on.
+      for (auto const & b : _InnerShieldingBricks) {
+        if (b.bores.empty()) continue;
+        const CLHEP::HepRotation rot = rotationFor(b.orientation);
+        const CLHEP::Hep3Vector & d = _leadBrickDims.at(b.type-1);
+        CLHEP::Hep3Vector worn;
+        for (int k = 0; k < 3; ++k) {
+          const CLHEP::Hep3Vector axis =
+            rot.inverse() * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+          worn[k] = d[k] - 2.*((std::abs(axis.y()) > 0.5) ? _leadBrickWearY : _leadBrickWearXZ);
+        }
+        const double hx = spanAlong(worn, rot, xDir)/2.;
+        const double hy = spanAlong(worn, rot, yDir)/2.;
+        checkFit("a stm.InnerShielding lead brick",
+                 b.center.x() - hx, b.center.x() + hx,
+                 b.center.y() - hy, b.center.y() + hy, b.bores);
+      }
+
+      // Boxes: their nominal size, turned by their orientation.
+      for (auto const & bx : _InnerShieldingBoxes) {
+        if (bx.bores.empty()) continue;
+        const CLHEP::HepRotation rot = rotationFor(bx.orientation);
+        const double hx = spanAlong(2.*bx.halfDim, rot, xDir)/2.;
+        const double hy = spanAlong(2.*bx.halfDim, rot, yDir)/2.;
+        checkFit(bx.name, bx.center.x() - hx, bx.center.x() + hx,
+                 bx.center.y() - hy, bx.center.y() + hy, bx.bores);
+      }
+
+      // Prisms: only those whose outline's v lands along the beam are
+      // supported, which is every bored one here ("100"). The beam then
+      // runs through the outline along v, so the hole must lie inside the
+      // outline's u range at every v the piece covers -- the overlap of
+      // those ranges -- and inside the sweep in the other direction.
+      for (auto const & p : _InnerShieldingPrisms) {
+        if (p.bores.empty()) continue;
+        const CLHEP::HepRotation rotInv = rotationFor(p.orientation).inverse();
+        const CLHEP::Hep3Vector uTo = rotInv * xDir;   // the outline's u
+        const CLHEP::Hep3Vector vTo = rotInv * yDir;   // the outline's v
+        const CLHEP::Hep3Vector sTo = rotInv * zDir;   // the sweep
+        if (std::abs(vTo.z()) < 0.5 || std::abs(uTo.x()) < 0.5 ||
+            std::abs(sTo.y()) < 0.5) {
+          throw cet::exception("GEOM")
+            << "STMMaker: " << p.name << " is bored, but its orientation "
+            << p.orientation << " does not put its outline's v along the"
+            << " beam, u along x and its sweep along y, which is all the"
+            << " bore fit check handles.\n";
+        }
+
+        // The outline's u range on the line at a given v.
+        const size_t n = p.uVerts.size();
+        auto uRangeAt = [&](double v, double & lo, double & hi) {
+          lo = 1.e30; hi = -1.e30;
+          for (size_t i = 0; i < n; ++i) {
+            const double u1 = p.uVerts[i],       v1 = p.vVerts[i];
+            const double u2 = p.uVerts[(i+1)%n], v2 = p.vVerts[(i+1)%n];
+            if ((v - v1)*(v - v2) > 0.) continue;    // edge misses this v
+            if (v1 == v2) {                          // edge lies along it
+              lo = std::min(lo, std::min(u1, u2));
+              hi = std::max(hi, std::max(u1, u2));
+            } else {                                 // edge crosses it
+              const double u = u1 + (u2 - u1)*(v - v1)/(v2 - v1);
+              lo = std::min(lo, u);
+              hi = std::max(hi, u);
+            }
+          }
+        };
+        // The edges are straight, so the overlap is set at the vertices.
+        double uLo = -1.e30, uHi = 1.e30;
+        for (size_t i = 0; i < n; ++i) {
+          double lo, hi;
+          uRangeAt(p.vVerts[i], lo, hi);
+          uLo = std::max(uLo, lo);
+          uHi = std::min(uHi, hi);
+        }
+
+        const double sx = (uTo.x() > 0.) ? 1. : -1.;
+        const double xlo = p.anchor.x() + std::min(sx*uLo, sx*uHi);
+        const double xhi = p.anchor.x() + std::max(sx*uLo, sx*uHi);
+        checkFit(p.name, xlo, xhi,
+                 p.anchor.y() - p.length/2., p.anchor.y() + p.length/2.,
+                 p.bores);
       }
     }
 

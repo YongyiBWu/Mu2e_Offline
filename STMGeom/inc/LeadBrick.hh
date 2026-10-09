@@ -63,15 +63,18 @@ namespace mu2e {
     // The same with the wear taken off each face, in the brick's OWN
     // frame. This is what the G4Box should be built from.
     //
-    // The local axis that rot maps closest to Mu2e y takes wearY and
-    // the other two take wearXZ. For the 90 degree turns used here each
-    // local axis maps exactly onto a Mu2e axis, so that is unambiguous.
+    // rot is the rotation handed to G4PVPlacement, which takes it as the
+    // frame rotation, so the brick itself is turned by rot^-1 and its
+    // local axis k lands on rot^-1 * e_k in Mu2e. The local axis that
+    // lands closest to Mu2e y takes wearY and the other two take wearXZ.
+    // For the 90 degree turns used here each local axis lands exactly on
+    // a Mu2e axis, so that is unambiguous.
     CLHEP::Hep3Vector worn(int type, CLHEP::HepRotation const & rot) const {
       CLHEP::Hep3Vector const & d = _dims.at(type-1);
       double w[3];
       for (int k = 0; k < 3; ++k) {
         const CLHEP::Hep3Vector axis =
-          rot * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
+          rot.inverse() * CLHEP::Hep3Vector(k == 0, k == 1, k == 2);
         w[k] = (std::abs(axis.y()) > 0.5) ? _wearY : _wearXZ;
       }
       return CLHEP::Hep3Vector(d.x() - 2.*w[0],

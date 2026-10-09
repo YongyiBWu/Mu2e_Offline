@@ -5,6 +5,7 @@
 //
 // Author: Haichuan Cao
 // Sept 2023
+// Update: Yongyi Wu Sept-Oct 2026, updated (hand-stacked) SSC
 
 #include <string>
 
@@ -26,7 +27,9 @@ namespace mu2e {
                  std::string const & material = ""
                  ) :
       _build(build),
-      _VDbuild(build),
+      // Was _VDbuild(build), which ignored VDbuild. Every geometry file
+      // sets the two alike (both true), so no file's result changes.
+      _VDbuild(VDbuild),
       _delta_WlR(delta_WlR),
       _delta_WlL(delta_WlL),
       _W_middle(W_middle),
@@ -77,7 +80,7 @@ namespace mu2e {
                  std::string const & material = ""
                  ) :
       _build(build),
-      _VDbuild(build),
+      _VDbuild(VDbuild),
       _delta_WlR(0.),
       _delta_WlL(0.),
       _W_middle(W_width),

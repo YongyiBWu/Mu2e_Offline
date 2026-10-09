@@ -5,6 +5,7 @@
 //
 // Author: Haichuan Cao
 // Sept 2023
+// Update: Yongyi Wu Sept-Oct 2026, updated (hand-stacked) cradle
 
 #include <string>
 
@@ -116,6 +117,11 @@ namespace mu2e {
     double FAluminumExtra_L() const {return _FAluminumExtra_L;}
     double FAluminumExtra_H() const {return _FAluminumExtra_H;}
 
+    // Not used anywhere, nor is rotation() below. constructSTM places both
+    // the earlier support and the updated cradle from its own
+    // STMShieldingRef, which sits BackShielding BPThick + ShieldingPipeGap
+    // upstream of the reference STMMaker builds this origin from, so this
+    // value does not match where the support is actually placed.
     CLHEP::Hep3Vector const &  originInMu2e()     const { return _originInMu2e; }
     CLHEP::HepRotation const & rotation()         const { return _rotation; }
     // Genreflex can't do persistency of vector<SSCSupport> without a default constructor

@@ -9,14 +9,205 @@
 // slate. Every dimension below is rederived from a CAD export
 // rather than inherited, and parameters are added as each component
 // is placed.
+
+// ===================================================================
+// GLOBAL
+// ===================================================================
+int stm.verbosityLevel = 0;
+
+// ===================================================================
+// UPSTREAM
+// ===================================================================
+// referenceZ is a frozen copy of the CRV-D downstream edge; affects
+// upstream components' z positions.
+double stm.referenceZ = 18766.81;
+
+// ---- Sweeper Magnet (Anchor) --------------------------------------
 //
+// This is not present in this geometry, but many of its dimensions
+// are used to place other components. Hence a minimal set is left in
+// here.
+bool   stm.magnet.build          = false;
+// Place the (virtual) magnet off the shield pipe rather than off
+// referenceZ + UpStrSpace. The FOV collimator, shield pipe and mating
+// block all follow from this; with it false they move by ~1.36 m.
+bool   stm.magnet.usePipeAsOrigin = true;
+// Enters the z of the FOV collimator, shield pipe and mating block:
+// the magnet center sits halfLength past the pipe, and each of them is
+// placed halfLength back from that center, so it drops out of their
+// final positions. It does not drop out of the magnet stand's leg
+// length, which still depends on it.
+double stm.magnet.halfLength     = 584.2;
+// Sets the magnet stand's height: its top sits at -halfHeight, just
+// under the FOV collimator.
+double stm.magnet.halfHeight     = 247.45;
+
+// ===================================================================
+// UPSTREAM: ABSORBERS
+// ===================================================================
+
+// ---- IFB poly -----------------------------------------------------
+//
+// Poly absorber at the IFB window.
+bool    stm.ifbPoly.build                          = true;
+double  stm.ifbPoly.gap                            = 10.0;
+double  stm.ifbPoly.halfLength                     = 3.0;
+double  stm.ifbPoly.rIn                            = 0.0;
+double  stm.ifbPoly.rOut                           = 127.0;
+string  stm.ifbPoly.material                       = "Polyethylene094";
+
+// ---- Shielding Hole Poly -------------------------------------------
+//
+// Poly absorber for the shielding hole. Turned off here because the
+// shielding hole is not built.
+bool    stm.shieldingHolePoly.build                = false;
+double  stm.shieldingHolePoly.gap                  = 215.0;
+double  stm.shieldingHolePoly.halfLength           = 25.0;
+double  stm.shieldingHolePoly.rIn                  = 0.0;
+double  stm.shieldingHolePoly.rOut                 = 127.0;
+string  stm.shieldingHolePoly.material             = "Polyethylene094";
+
+// ===================================================================
+// UPSTREAM: FOV COLLIMATOR AND PERIPHERALS
+// ===================================================================
+
+// ---- FOV Collimator -----------------------------------------------
+//
+bool    stm.FOVcollimator.build                    = true;
+string  stm.FOVcollimator.material                 = "G4_Pb";
+double  stm.FOVcollimator.UpStrSpace               = 11.7;
+double  stm.FOVcollimator.halfWidth                = 198.1;
+double  stm.FOVcollimator.halfHeight               = 245.1;
+double  stm.FOVcollimator.halfLength               = 63.5;
+// No liner and no cutout for one. Its size and the cutout are read only
+// when the liner or the poly absorber is built.
+bool    stm.FOVcollimator.liner.build              = false;
+// The one centered hole. The other hole1/hole2 keys belong to the
+// earlier SS collimator, which shares the class, and are not read here.
+double  stm.FOVcollimator.hole1.radiusUpStr        = 70.0;
+bool    stm.FOVcollimator.plug.build               = true;
+double  stm.FOVcollimator.plug.radius              = 70.0;
+double  stm.FOVcollimator.plug.halfLength          = 50.;
+double  stm.FOVcollimator.plug.offset              = 0.;
+string  stm.FOVcollimator.plug.material            = "Polyethylene094";
+// No poly absorber: stm.FOVcollimator.absorber.build falls back to false.
+
+// ---- CRV shield pipe ----------------------------------------------
+//
+// Mating block is no longer specified as sweeper magnet is no longer there.
+bool    stm.shield.build                           = true;
+string  stm.shield.material                        = "MildSteel";
+double  stm.shield.rIn                             = 139.70;
+double  stm.shield.rOut                            = 177.8;
+bool    stm.shield.hasLiner                        = false;
+string  stm.shield.materialLiner                   = "G4_AIR";
+double  stm.shield.widthLiner                      = 0.0;
+double  stm.shield.pipe.halfLength                 = 888.0;
+double  stm.shield.pipe.upStrAirGap                = 25.3;
+double  stm.shield.UpStrSpace                      = 10.0;
+double  stm.shield.DnStrSpace                      = 1.0;
+double  stm.shield.UpStrWall.gap                   = -223.75;
+bool    stm.shield.matingBlock.build               = false;
+bool    stm.shield.matchPipeBlock                  = true;
+
+// ---- Magnet/FOV support table ----------------------------------
+//
+bool    stm.magnet.stand.build                     = true;
+string  stm.magnet.stand.material                  = "MildSteel";
+double  stm.magnet.stand.topExtraWidth             = 300.0;
+// -200.0 in STM_v09, plus 25.4. STMMaker adds the mating block's
+// half-thickness (stm.shield.DnStrWall.halfLength, 25.4 in v09) to the
+// tabletop's half-length; with the block removed that term is 0, so it
+// is put back here to keep the tabletop the v09 size (half-length
+// 783.25 mm). Its position is unaffected: the same term enters the
+// tabletop's z once added and once subtracted.
+double  stm.magnet.stand.topExtraLength            = -174.6;
+double  stm.magnet.stand.topHalfHeight             = 30.0;
+double  stm.magnet.stand.legRadius                 = 50.0;
+
+// ===================================================================
+// DOWNSTREAM
+// ===================================================================
+// double stm.z.allowed ommitted: old lead SSC and detectors are now
+// obsolete. Turn it back on only when detector support table 
+// stm.detector.stand or vd.STMFin are built.
+
+// ---- Downstream envelope ------------------------------------------
+bool    stm.downstream.build                       = true;
+double  stm.downstream.halfLength                  = 2219.15;
+double  stm.downstream.halfWidth                   = 2000.0;
+string  stm.downstream.material                    = "G4_AIR";
+
+// ===================================================================
+// DOWNSTREAM: STM SHIELD HOUSE
+// ===================================================================
+
+// ---- LaBr ---------------------------------------------------------
+//
+// Z_LaBr is the distance from the back of the front shielding copper
+// lining to the front face of the LaBr endcap.
+//
+// In v09 it was measured from the FRONT of that lining, and 330.0 left
+// the LaBr 37.9 mm behind the back face of the inner divider's
+// downstream copper (CopperInnerFPV1, 292.1 from v09's Front_T).
+// In v10 the matching piece is liningMidBackBox, whose back face is
+// 271.9 from the copper lining's back, so 330.0 would leave 58.1 mm.
+// 310.0 leaves 38.1 mm, within 0.2 mm of the v09 clearance.
+bool    stm.LaBr.build                             = true;
+string  stm.LaBr.crystalMaterial                   = "LaBr3Ce";
+string  stm.LaBr.windowMaterial                    = "G4_Al";
+string  stm.LaBr.wallMaterial                      = "G4_Al";
+double  stm.LaBr.EndcapR                           = 48.0;
+double  stm.LaBr.EndcapL                           = 66.3;
+double  stm.LaBr.CrystalR                          = 38.1;
+double  stm.LaBr.CrystalL                          = 76.2;
+double  stm.LaBr.Z_LaBr                            = 310.0; // 330.0 in v09
+double  stm.LaBr.WindowD                           = 1.5;
+double  stm.LaBr.EndcapD                           = 1.5;
+double  stm.LaBr.AirD                              = 4.0;
+double  stm.LaBr.offset_LaBr                       = 0.0;
+
+// ---- HPGe ---------------------------------------------------------
+//
+// Similar to LaBr, Z_HPGe is the distance from the back of the front
+// shielding copper lining to the center of the front face of the
+// (tilted) HPGe endcap.
+//
+// In v09 it was measured from the FRONT of the 12.7 mm lining, so
+// 63.131 put that point 50.431 behind the lining's back. 50.431 keeps
+// the same clearance here; the endcap's most upstream point then sits
+// 50.431 - EndcapR*sqrt(2)/2 = 14.96 mm behind the lining, as in v09.
+bool    stm.HPGe.build                             = true;
+string  stm.HPGe.crystalMaterial                   = "G4_Ge";
+string  stm.HPGe.holeMaterial                      = "G4_AIR";
+string  stm.HPGe.windowMaterial                    = "G4_Al";
+string  stm.HPGe.wallMaterial                      = "G4_Al";
+string  stm.HPGe.capsuleMaterial                   = "G4_Al";
+double  stm.HPGe.EndcapR                           = 50.165;
+double  stm.HPGe.EndcapL                           = 173;
+double  stm.HPGe.CrystalR                          = 36.05;
+double  stm.HPGe.CrystalL                          = 78.5;
+double  stm.HPGe.Z_HPGe                            = 50.431; // 63.131 in v09
+double  stm.HPGe.HoleR                             = 5.25;
+double  stm.HPGe.HoleL                             = 64.7;
+double  stm.HPGe.Capsule_Wallthick                 = 0.8;
+double  stm.HPGe.Capsule_Windowthick               = 0.03;
+double  stm.HPGe.Capsule_Endthick                  = 3;
+double  stm.HPGe.Capsule_Walllength                = 130;
+double  stm.HPGe.WindowD                           = 1.5;
+double  stm.HPGe.EndcapD                           = 1.5;
+double  stm.HPGe.AirD                              = 4.0;
+double  stm.HPGe.offset_HPGe                       = -10;
+
+// ===================================================================
+// DOWNSTREAM: STM SHIELD HOUSE
+// ===================================================================
 // Everything downstream is positioned against STMShieldingRef, which
 // is the FRONT FACE OF THE STEEL SUPPORT CRADLE. This point moves if 
 // the thickness of the borated polyethylene against the experiment
 // hall wall or the cable gap size is changed.
 
 bool stm.downstream.handstacked = true;
-
 
 // ---- Lead bricks --------------------------------------------------
 //
@@ -67,7 +258,6 @@ int    stm.leadBrick.typeN = 3;
 string stm.leadBrick.type1 = "2x4x16";
 string stm.leadBrick.type2 = "2x4x8";
 string stm.leadBrick.type3 = "2x4x4";
-
 
 // ---- Spot-Size Collimator ----------------------------------------
 //
@@ -142,7 +332,6 @@ double stm.STM_SSC.boreToBase      = 236.000;
 //
 // Note the top wall's aluminium plate extends 1 in past this plane.
 double stm.STM_SSC.FrontToWall     = 924.300;
-
 
 // ---- Steel support cradle ----------------------------------------
 //
@@ -275,9 +464,14 @@ vector<double> stm.SSCFrontShield.brickGroup2.center3 = { 116.840,    0.000, -12
 vector<double> stm.SSCFrontShield.brickGroup2.center4 = {-119.380,  -25.400, -250.933};
 vector<double> stm.SSCFrontShield.brickGroup2.center5 = { 116.840,  -25.400, -250.933};
 
+// Brick 3 lies 4 in along x, 2 in along y and 8 in along z. Geant4
+// turns a placed piece by the INVERSE of its orientation's rotation, and
+// "101" (rotateZ(-90), then rotateY(-90)) inverted takes the brick's own
+// x (8 in) to z, y (4 in) to x and z (2 in) to y. "110" would stand it
+// 8 in tall.
 string stm.SSCFrontShield.brickGroup2.orientation1 = "100";
 string stm.SSCFrontShield.brickGroup2.orientation2 = "100";
-string stm.SSCFrontShield.brickGroup2.orientation3 = "110";
+string stm.SSCFrontShield.brickGroup2.orientation3 = "101";
 string stm.SSCFrontShield.brickGroup2.orientation4 = "001";
 string stm.SSCFrontShield.brickGroup2.orientation5 = "001";
 
@@ -378,11 +572,9 @@ string stm.FrontShieldingRight.layer5 = "Pb";
 // The lead layers. Each course is a list of stm.leadBrick types read
 // from -x to +x, butted end to end and flush at brickEndX. Layer 2 is
 // layer 1 with every course reversed, which is what breaks the joints
-// between layers; layer 3 repeats layer 1.
+// between layers; layer 3 repeats layer 1 except for its beam course.
 vector<int> stm.FrontShieldingRight.leadLayer1Course1 = {1,2};
-// The course the beam passes through. A 4 in brick at each end leaves
-// the 16 in one centered, so both bores sit well inside it.
-vector<int> stm.FrontShieldingRight.leadLayer1Course2 = {3,1,3};
+vector<int> stm.FrontShieldingRight.leadLayer1Course2 = {2,1};
 vector<int> stm.FrontShieldingRight.leadLayer1Course3 = {1,2};
 vector<int> stm.FrontShieldingRight.leadLayer1Course4 = {2,1};
 
@@ -392,7 +584,11 @@ vector<int> stm.FrontShieldingRight.leadLayer2Course3 = {2,1};
 vector<int> stm.FrontShieldingRight.leadLayer2Course4 = {1,2};
 
 vector<int> stm.FrontShieldingRight.leadLayer3Course1 = {1,2};
-vector<int> stm.FrontShieldingRight.leadLayer3Course2 = {2,1};
+// The innermost layer's beam course, as the CAD stacks it: a 4 in
+// brick at each end with a 16 in brick between them, so both bores
+// fall on one piece and the joints do not line up with the 8/16
+// split the other two layers use.
+vector<int> stm.FrontShieldingRight.leadLayer3Course2 = {3,1,3};
 vector<int> stm.FrontShieldingRight.leadLayer3Course3 = {1,2};
 vector<int> stm.FrontShieldingRight.leadLayer3Course4 = {2,1};
 
@@ -467,8 +663,10 @@ string stm.FrontShieldingRight.copperLining.material = "G4_Cu";
 // The cross-section is a trapezoid: 316.0 along its long side, 12.7
 // high, and the short side one height shorter at 303.3. The outline
 // sits in the third quadrant so that its local origin is the +u end
-// of the long side, which is all the placement needs -- that corner
-// aligns with brickEndX - 5 in = 158.750.
+// of the SHORT side, which is all the placement needs -- that corner
+// aligns with brickEndX - 5 in = 158.750. Under "300" Geant4 turns the
+// outline's v onto -z, so the short side (v = 0) faces upstream against
+// the last lead layer and the long side (v = -12.7) faces downstream.
 vector<double> stm.FrontShieldingRight.copperLining.UVerts = {0.0,   0.0, -316.0, -303.3};
 vector<double> stm.FrontShieldingRight.copperLining.VVerts = {0.0, -12.7,  -12.7,    0.0};
 double stm.FrontShieldingRight.copperLining.length      = 137.700;  // 5.421 in, along y
@@ -521,7 +719,7 @@ string stm.FrontShieldingLeft.BPmaterial = "Polyethylene092B050d095";
 double stm.FrontShieldingLeft.sidePoly.fromEndX = -622.300;  // -(24 + 0.5) in
 double stm.FrontShieldingLeft.sidePoly.dx =  25.400;  // 1 in, THICKNESS
 double stm.FrontShieldingLeft.sidePoly.dy = 490.000;
-double stm.FrontShieldingLeft.sidePoly.dz = 152.200;  // 6 in
+double stm.FrontShieldingLeft.sidePoly.dz = 152.400;  // 6 in; meets the outer block's front face
 
 // The outer sheet, one layer ahead of the brick block. This one lies
 // in the xy plane, so its 1 in is in z and dx is a width. Its +x face
@@ -743,9 +941,11 @@ double stm.RightWall.copperSheet.fromRefZ     =  12.700;  // 0.5 in, thickness o
 // of the copper come to 1 + 2 + 1 + 2 = 6 in, which is why the
 // reference sits 6 in outboard of the innermost lead layer's +x face.
 //
-// In z every piece here starts at the reference: the sheets and both
-// lead layers all run the same 24 in, and the copper the same way but
-// only 111.2 mm. None of them needs a z offset of its own.
+// In z the sheets and both lead layers start at the reference and run
+// the same 24 in. The copper is the exception: only 111.2 mm long, it
+// sits flush with the far (+z) end of that 24 in instead, where
+// STMMaker places it from longwallPoly.dz. None of them needs a z offset
+// of its own.
 bool   stm.LeftWall.build = true;
 
 double stm.LeftWall.refFromBrickEndX = -1092.200;  // -43 in
@@ -877,8 +1077,12 @@ vector<int> stm.TopWall.leadLayer1Course3 = {2,2,2,2,2,2};
 vector<int> stm.TopWall.leadLayer1Course4 = {2,2,2,2,2};    // 5 x 4 in, offset
 vector<int> stm.TopWall.leadLayer1Course5 = {2,2,2,2,2};
 
-// The first course runs its 8 in along z, the rest their 4 in.
-string stm.TopWall.leadLayer1Course1Orientation = "110";
+// The first course runs its 8 in along z, the rest their 4 in. Course 1
+// is "101": Geant4 turns a placed piece by the INVERSE of its
+// orientation's rotation, and "101" inverted takes the brick's own x
+// (8 in) to z, y (4 in) to x and z (2 in) to y. "110" would stand it
+// 8 in tall.
+string stm.TopWall.leadLayer1Course1Orientation = "101";
 string stm.TopWall.leadLayer1Course2Orientation = "100";
 string stm.TopWall.leadLayer1Course3Orientation = "100";
 string stm.TopWall.leadLayer1Course4Orientation = "100";
@@ -894,7 +1098,7 @@ double stm.TopWall.leadLayer1Course5FromRefZ = 76.200;  // 3 in
 //
 // Two identical plates side by side in z, together spanning 25 in.
 string stm.TopWall.plate.material = "G4_Al";
-double stm.TopWall.plate.dx = 914.600;  // 36 in
+double stm.TopWall.plate.dx = 914.400;  // 36 in; ends flush with the left wall's inner poly
 double stm.TopWall.plate.dy =  19.050;  // 0.75 in, thickness
 double stm.TopWall.plate.dz = 317.500;  // 12.5 in
 int    stm.TopWall.plateN   = 2;
@@ -980,12 +1184,16 @@ vector<int> stm.BottomWall.leadLayer1Course4 = {2,2};      // 4 in
 vector<int> stm.BottomWall.leadLayer1Course5 = {2,2,2,2};  // 8 in
 vector<int> stm.BottomWall.leadLayer1Course6 = {2,2};      // 4 in
 
-string stm.BottomWall.leadLayer1Course1Orientation = "110";
+// The 4 in courses are "101": Geant4 turns a placed piece by the
+// INVERSE of its orientation's rotation, and "101" inverted takes the
+// brick's own x (8 in) to z, y (4 in) to x and z (2 in) to y. "110"
+// would stand them 8 in tall.
+string stm.BottomWall.leadLayer1Course1Orientation = "101";
 string stm.BottomWall.leadLayer1Course2Orientation = "100";
-string stm.BottomWall.leadLayer1Course3Orientation = "110";
-string stm.BottomWall.leadLayer1Course4Orientation = "110";
+string stm.BottomWall.leadLayer1Course3Orientation = "101";
+string stm.BottomWall.leadLayer1Course4Orientation = "101";
 string stm.BottomWall.leadLayer1Course5Orientation = "100";
-string stm.BottomWall.leadLayer1Course6Orientation = "110";
+string stm.BottomWall.leadLayer1Course6Orientation = "101";
 
 double stm.BottomWall.leadLayer1Course1FromRefZ = 101.600;  // 4 in
 double stm.BottomWall.leadLayer1Course2FromRefZ = 101.600;  // 4 in
@@ -1131,7 +1339,7 @@ double stm.InnerShielding.liningMidLeftWall.fromRefZ =  419.3595;  // 437.32 - 1
 
 // The middle slanted piece, whose long faces run at 45 degrees.
 vector<double> stm.InnerShielding.liningMidSlanted.UVerts =
-  {0.0, -279.7200, -279.9200, -17.9605};
+  {0.0, -279.7200, -279.7200, -17.9605};
 vector<double> stm.InnerShielding.liningMidSlanted.VVerts =
   {0.0,  279.7200,  261.7595,   0.0000};
 string stm.InnerShielding.liningMidSlanted.orientation = "100";
@@ -1255,6 +1463,126 @@ double stm.InnerShielding.leadClipped2.fromRefX =   0.000;
 double stm.InnerShielding.leadClipped2.fromRefY = 138.700;  // 5 in + 23.4/2
 double stm.InnerShielding.leadClipped2.fromRefZ = 170.300;
 
+// This is the end of the shield house.
+
+// ===================================================================
+// DOWNSTREAM: BACK SHIELDING AND ELECTRONIC SHIELDING
+// ===================================================================
+// ---- Back shielding -----------------------------------------------
+//
+bool    stm.BackShielding.build                    = true;
+double  stm.BackShielding.BPThick                  = 25.4;
+double  stm.BackShielding.BPLength                 = 1500;
+double  stm.BackShielding.BPHeight                 = 1000;
+double  stm.BackShielding.BackS_dX                 = -304.8;
+double  stm.BackShielding.BackS_dY                 = 0;
+double  stm.BackShielding.ShieldingPipeGap         = 76.2;
+
+// ---- Electronic shielding -----------------------------------------
+//
+// The z position is anchored to the back of the right-front copper
+// lining; tune SiZcenter to move the components up and down-stream.
+// With SiZcenter = 0 the silicon grid's mid-plane sits flush with the
+// back of the front shielding right's copper lining, and the concrete's
+// downstream face sits GapToSi upstream of it. (In v09 the same values
+// put them against the lining's front instead, 12.7 mm further upstream.)
+bool    stm.ElectronicShielding.build              = true;
+double  stm.ElectronicShielding.SiGridX            = 127.0;
+double  stm.ElectronicShielding.SiGridY            = 127.0;
+double  stm.ElectronicShielding.SiGridZ            = 25.4;
+double  stm.ElectronicShielding.SiXcenter          = -381.0;
+double  stm.ElectronicShielding.SiYcenter          = -1219.2;
+double  stm.ElectronicShielding.SiZcenter          = 0;
+double  stm.ElectronicShielding.ConcreteT          = 457.2;
+double  stm.ElectronicShielding.GapToSi            = 127;
+
+// ===================================================================
+// VIRTUAL DETECTORS
+// ===================================================================
+// Placed in VirtualDetectorMaker, built in constructVirtualDetectors.
+// Listed upstream to downstream. Each z is the VD's center in Mu2e
+// coordinates for the values in this file, with vd.halfLength = 0.01.
+// Downstream ones are measured from the cradle front (STMShieldingRef in
+// constructSTM), which sits at
+//   east wall inner face - FrontToWall - BPThick - ShieldingPipeGap
+//   = 41351.2 - 924.3 - 25.4 - 76.2 = 40325.3
+
+// ---- Upstream, in the hall air ------------------------------------
+
+// VD81 DSNeutronShieldExit: disk at the downstream end of the hole in
+// the DS neutron shielding (ExtShieldDownstream.detecHoleZ +
+// detecHoleHalflength + 0.01). z = 18465.01.
+bool    vd.DSNeutronShieldExit.build               = true;
+// Must be kept the same as ExtShieldDownstream.holeRadiusType11Box4Hole1
+// and ExtShieldDownstream.detecHoleRadius, which are set in
+// ExtShieldDownstream_v??.txt.
+double  vd.DSNeutronShieldExit.r                   = 110.0;
+
+// Half-width in x of the hall-wide planes VD86, VD100 and VD87; their
+// height runs floor to +2312 (yOfFloorSurface).
+double  stm.upstreamVDs.xHalfLength                = 2850.;
+
+// VD86 STM_UpStr: hall-wide plane 1 mm downstream of the CRV-D end
+// (stm.referenceZ), with a hole of radius stm.shield.rOut. z = 18767.80.
+bool    vd.STMUpStr.build                          = false;
+
+// VD115 STM_UpStrHole: disk of radius stm.shield.rIn at the same z as
+// VD86, filling the CRV shield pipe's bore. z = 18767.80.
+bool    vd.STMUpStrHole.build                      = true;
+
+// VD100 STM_FieldOfViewCollDnStr: hall-wide plane 100 mm downstream of
+// the FOV collimator's back face (20483.06). z = 20583.05.
+bool    vd.STMFieldOfViewCollDnStr.build           = true;
+
+// VD87 STM_MagDnStr: meant to sit between the sweeper magnet and the
+// FOV collimator. It is placed midway between the magnet's downstream
+// face and the collimator's front, but with the magnet not built that
+// face (21487.46) is downstream of the collimator, so the VD would land
+// at z = 20921.77, 438.7 mm downstream of the collimator's back face --
+// nowhere near the gap it is named for, and behind VD100. Turned off;
+// nothing else reads it.
+bool    vd.STMMagDnStr.build                       = false;
+
+// ---- Downstream, in the downstream envelope -----------------------
+
+// VD116 STM_UpStrLarge: disk of radius 2000, vd.STMUpStrLarge.offset
+// upstream of the cradle front. z = 37700.39, the same as in STM_v09.
+// VD101 STM_SpotSizeCollUpStr: disk of radius vd.STMSSCollUpStr.r on the
+// beam axis, 15 mm upstream of the cradle front, in the gap between the
+// SSC front shield's bricks and the cradle. z = 40310.29.
+bool    vd.STMSSCollUpStr.build                    = true;
+double  vd.STMSSCollUpStr.r                        = 100;
+// 2500 (the code's fallback) plus 124.9: the cradle front sits 124.9
+// downstream of where STM_v09's reference did (FrontToWall 1049.2 ->
+// 924.3), so this keeps VD116 at its STM_v09 z.
+double  vd.STMUpStrLarge.offset                    = 2624.9;
+
+// VD88 STM_CollDnStr: disk on the beam axis, 25.4 mm downstream of the
+// front shielding's back face (the FSR copper lining's back, 327.4 from
+// the cradle front), z = 40678.11. Turned off, and should stay off in
+// this geometry: the LaBr copper pipe runs through the front shielding
+// to 600.6 from the cradle front at x = 15.24 to 66.04, so a disk on the
+// beam axis overlaps it at any z behind the lining. Its radius,
+// vd.STMCollDnStr.r, is read only when it is built.
+bool    vd.STMCollDnStr.build                      = false;
+
+// VD89 STM_Det1UpStr: disk on the LaBr axis, 1 mm upstream of the LaBr
+// window (front shielding's back face + stm.LaBr.Z_LaBr - 1).
+// z = 40961.71.
+bool    vd.STMDet1UpStr.build                      = true;
+double  stm.det1VD.rOut                            = 60;
+
+// VD90 STM_Det2UpStr: disk on the HPGe bore axis (x = -offset_Spot),
+// 1 mm upstream of the most upstream point of the tilted HPGe endcap
+// (front shielding's back face + Z_HPGe - EndcapR*sqrt(2)/2 - 1).
+// z = 40666.65.
+bool    vd.STMDet2UpStr.build                      = true;
+// 60 in STM_v09. Reduced to stay clear of the LaBr copper pipe, which at
+// this z reaches to x = 15.24 (offset_Spot - its outer radius 25.4), i.e.
+// 55.88 from VD90's center. Still covers the opening of the shorter
+// (HPGe) copper pipe, which is centered on the same axis with outer
+// radius 25.4.
+double  stm.det2VD.rOut                            = 55.8;
 
 // This tells emacs to view this file in c++ mode
 // Local Variables:
