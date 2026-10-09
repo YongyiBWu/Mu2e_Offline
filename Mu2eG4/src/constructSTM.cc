@@ -2028,7 +2028,7 @@ namespace mu2e {
                      + std::abs(turned(i,1))*own[1]
                      + std::abs(turned(i,2))*own[2];
             }
-            cout << __func__ << " lead brick "
+            cout << "constructSTM lead brick "
                  << stmgh.getLeadBrickPtr()->name(brick.type)
                  << " orientation " << brick.orientation
                  << ": worn own x/y/z (" << own[0] << ", " << own[1] << ", " << own[2]

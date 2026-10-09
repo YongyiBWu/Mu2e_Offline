@@ -852,16 +852,18 @@ string stm.RightWall.layer5 = "Cu";       // copper sheet
 
 // ---- Layer 1: the outer poly pair ---------------------------------
 //
-// The edge piece is an L in the y-z plane swept 1 in along x. Its
-// outline starts at the reference vertex: a 8 in x 490 mm block at +u,
-// then the wall runs 24 in along -u at 254 mm high. The sweep is 1 inch
-// along x. Note the prism's anchor point is 0.5 in away from the right
-// wall reference point in the +x direction.
+// The edge piece is an L in the y-z plane swept 1 in along x. The
+// reference vertex is the outline's origin (0,0), on its bottom edge,
+// and is not listed, because Geant4 drops collinear vertices. From it:
+// a 8 in x 490 mm block at +u, then the wall runs 24 in along -u at
+// 254 mm high. The sweep is 1 inch along x. Note the prism's anchor
+// point is 0.5 in away from the right wall reference point in the +x
+// direction.
 double stm.RightWall.edgePoly.thickness = 25.400;  // 1 in, along x
 vector<double> stm.RightWall.edgePoly.UVerts =
-  {0.0, 203.2, 203.2,   0.0,   0.0, -609.6, -609.6};
+  {203.2, 203.2,   0.0,   0.0, -609.6, -609.6};
 vector<double> stm.RightWall.edgePoly.VVerts =
-  {0.0,   0.0, 490.0, 490.0, 254.0,  254.0,    0.0};
+  {  0.0, 490.0, 490.0, 254.0,  254.0,    0.0};
 string stm.RightWall.edgePoly.orientation = "010";
 
 // The sheet above it, sharing its x plane.
