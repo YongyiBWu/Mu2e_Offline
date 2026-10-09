@@ -4779,6 +4779,65 @@ namespace mu2e {
       doSurfaceCheck);
   }
 
+    /////////// Inner lining ////////////////////////
+    //
+    // The updated inner shielding, replacing the block above: six
+    // copper pieces lining the detector cavity and eleven lead ones
+    // around them, 17 in all.
+    //
+    // Unlike the walls this is not a stack of layers -- every piece is
+    // placed on its own -- so it arrives as three lists. A few pieces
+    // are bored on the LaBr beam axis, and they name that bore by
+    // number out of the section's own list, as every bored piece in the
+    // house does.
+    else if(stmgh.handstacked() && pInnerShieldingParams.build())
+   {
+      ////////////////////////////////////////
+      // The swept pieces: the copper prisms, then the lead ones
+
+      int innerPrismIndex = 0;
+      for (auto const & prism : pInnerShieldingParams.prisms()) {
+        ++innerPrismIndex;
+        placePrism(prism.name, prism.material, prism.uVerts, prism.vVerts,
+                   prism.length, prism.orientation, prism.anchor,
+                   namedBores(prism.bores,
+                              pInnerShieldingParams.bores(), prism.name));
+      }
+
+      ////////////////////////////////////////
+      // The boxes: two copper plates and the three angled lead pieces
+
+      int innerBoxIndex = 0;
+      for (auto const & box : pInnerShieldingParams.boxes()) {
+        ++innerBoxIndex;
+
+        // The angled pieces would touch their neighbours at nominal
+        // size once turned, so those are backed off by the nudge. The
+        // plates are not.
+        placeAdvancedBox(box.name, box.material, box.halfDim, box.center,
+                         box.orientation,
+                         box.nudge ? stmNudge : 0.,
+                         namedBores(box.bores,
+                                    pInnerShieldingParams.bores(), box.name));
+      }
+
+      ////////////////////////////////////////
+      // The standard lead bricks placed individually
+
+      // One of these is on the LaBr axis and names that bore; the rest
+      // name none.
+      int innerBrickIndex = 0;
+      placeLeadBricks(pInnerShieldingParams.bricks(), "Inner",
+                      innerBrickIndex, pInnerShieldingParams.bores());
+
+      if ( verbosityLevel > 0) {
+        cout << __func__ << " InnerLining : "
+             << innerPrismIndex << " prisms, "
+             << innerBoxIndex   << " boxes and "
+             << innerBrickIndex << " bricks" << endl;
+      }
+
+   }
 
 
     /////////// Electronic Shielding ///////////////
@@ -4849,66 +4908,6 @@ namespace mu2e {
          k++;
       }
     }
-
-   }
-
-    /////////// Inner lining ////////////////////////
-    //
-    // The updated inner shielding, replacing the block above: six
-    // copper pieces lining the detector cavity and eleven lead ones
-    // around them, 17 in all.
-    //
-    // Unlike the walls this is not a stack of layers -- every piece is
-    // placed on its own -- so it arrives as three lists. A few pieces
-    // are bored on the LaBr beam axis, and they name that bore by
-    // number out of the section's own list, as every bored piece in the
-    // house does.
-    else if(stmgh.handstacked() && pInnerShieldingParams.build())
-   {
-      ////////////////////////////////////////
-      // The swept pieces: the copper prisms, then the lead ones
-
-      int innerPrismIndex = 0;
-      for (auto const & prism : pInnerShieldingParams.prisms()) {
-        ++innerPrismIndex;
-        placePrism(prism.name, prism.material, prism.uVerts, prism.vVerts,
-                   prism.length, prism.orientation, prism.anchor,
-                   namedBores(prism.bores,
-                              pInnerShieldingParams.bores(), prism.name));
-      }
-
-      ////////////////////////////////////////
-      // The boxes: two copper plates and the three angled lead pieces
-
-      int innerBoxIndex = 0;
-      for (auto const & box : pInnerShieldingParams.boxes()) {
-        ++innerBoxIndex;
-
-        // The angled pieces would touch their neighbours at nominal
-        // size once turned, so those are backed off by the nudge. The
-        // plates are not.
-        placeAdvancedBox(box.name, box.material, box.halfDim, box.center,
-                         box.orientation,
-                         box.nudge ? stmNudge : 0.,
-                         namedBores(box.bores,
-                                    pInnerShieldingParams.bores(), box.name));
-      }
-
-      ////////////////////////////////////////
-      // The standard lead bricks placed individually
-
-      // One of these is on the LaBr axis and names that bore; the rest
-      // name none.
-      int innerBrickIndex = 0;
-      placeLeadBricks(pInnerShieldingParams.bricks(), "Inner",
-                      innerBrickIndex, pInnerShieldingParams.bores());
-
-      if ( verbosityLevel > 0) {
-        cout << __func__ << " InnerLining : "
-             << innerPrismIndex << " prisms, "
-             << innerBoxIndex   << " boxes and "
-             << innerBrickIndex << " bricks" << endl;
-      }
 
    }
 
