@@ -4,7 +4,7 @@
 // Author: Anthony Palladino
 // Update: Haichuan Cao Sept 2023
 // Update: Yongyi Wu Sept-Oct 2026, hand-stacked downstream shielding
-//         (stm.downstream.handstacked, STM_v10)
+//         (stm.downstream.handstacked, STM_v11)
 //
 // Notes
 // See mu2e-doc-XXXX for naming conventions etc.
