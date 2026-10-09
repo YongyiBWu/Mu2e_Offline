@@ -801,9 +801,12 @@ string stm.FrontShieldingLeft.innerGridOrientation = "000";
 //
 //   x  the inner sheet's +x face,  innerPoly.fromEndX + dx/2
 //   z  the inner sheet's -z face, which the right angle butts against
-//   y  its top is level with the inner sheet's top. The extrusion is
-//      centered on its origin, so the anchor sits HALF a sweep length
-//      below that top.
+//   y  its bottom rests on the floor, bottomToBase above the baseplate
+//      (the top of the bottom wall's second lead layer). The extrusion
+//      is centered on its origin, so the anchor sits HALF a sweep
+//      length above that bottom. It is not hung from the inner sheet's
+//      top: the sheet is measured 2 mm short of 12 in, which would sink
+//      the prism 2 mm into the floor lead.
 //
 // Its 3 in of z then reaches across the inner sheet and the 2x3 grid
 // of bricks together, and the 6 in sweep is centered on the anchor.
@@ -811,6 +814,7 @@ string stm.FrontShieldingLeft.triangle.material = "G4_Pb";
 vector<double> stm.FrontShieldingLeft.triangle.UVerts = {0.0, 76.2,   0.0};
 vector<double> stm.FrontShieldingLeft.triangle.VVerts = {0.0,  0.0, -76.2};
 double stm.FrontShieldingLeft.triangle.length      = 152.400;  // 6 in
+double stm.FrontShieldingLeft.triangle.bottomToBase = 152.400;  // 6 in
 string stm.FrontShieldingLeft.triangle.orientation = "300";
 
 

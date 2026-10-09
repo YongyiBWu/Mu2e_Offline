@@ -2220,17 +2220,18 @@ namespace mu2e {
       _FrontShieldingLeftPrism.orientation =
         _config.getString("stm.FrontShieldingLeft.triangle.orientation");
       // The right angle butts the inner sheet's +x and -z faces, and
-      // the prism's top is level with that sheet's top. An extruded
-      // solid is centered on its placement point, so the anchor's y is
-      // half a sweep below that top rather than at it.
+      // the prism rests on the floor, its bottom bottomToBase above the
+      // baseplate. An extruded solid is centered on its placement point,
+      // so the anchor's y is half a sweep above that bottom.
       {
         const double innerX =
           fsrBrickEndX + _config.getDouble("stm.FrontShieldingLeft.innerPoly.fromEndX");
-        const double innerTop =
-          -_STM_SSCboreToBase + fslInnerBase + fslInnerDy;
+        const double prismBottom =
+          -_STM_SSCboreToBase
+          + _config.getDouble("stm.FrontShieldingLeft.triangle.bottomToBase");
         _FrontShieldingLeftPrism.anchor =
           CLHEP::Hep3Vector(innerX + fslInnerDx/2,
-                            innerTop - _FrontShieldingLeftPrism.length/2,
+                            prismBottom + _FrontShieldingLeftPrism.length/2,
                             fslInnerZ);
       }
     }
