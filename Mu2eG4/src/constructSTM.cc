@@ -309,8 +309,12 @@ namespace mu2e {
     if ( verbosityLevel > 0) {
        cout << __func__ << " Sweeper magnet extent in z   : "
             << pSTMMagnetParams.zBegin() <<","<< pSTMMagnetParams.zEnd() << endl;
-       cout << __func__ << " Sweeper magnet hole opening xHalfLength : "<< stmMagnetHoleHalfLengths[0] << endl;
-       cout << __func__ << " Sweeper magnet hole opening yHalfLength : "<< stmMagnetHoleHalfLengths[1] << endl;
+       // The hole is read only when the magnet or the transport pipe is
+       // built; otherwise its half lengths are unread zeros.
+       if (stmMagnetHoleNeeded) {
+         cout << __func__ << " Sweeper magnet hole opening xHalfLength : "<< stmMagnetHoleHalfLengths[0] << endl;
+         cout << __func__ << " Sweeper magnet hole opening yHalfLength : "<< stmMagnetHoleHalfLengths[1] << endl;
+       }
     }
 
 
@@ -394,7 +398,11 @@ namespace mu2e {
     }
     CLHEP::Hep3Vector vdDSNeutronShieldExitPositionInParent = vdDSNeutronShieldExitPositionInMu2e - parentCenterInMu2e;
     if (verbosityLevel>0){
-      std::cout << __func__ << " vdDSNeutronShieldExitPositionInMu2e = "<<vdDSNeutronShieldExitPositionInMu2e<<std::endl;
+      if (vdDSNeutronShieldExitBuilt) {
+        std::cout << __func__ << " vdDSNeutronShieldExitPositionInMu2e = "<<vdDSNeutronShieldExitPositionInMu2e<<std::endl;
+      } else {
+        std::cout << __func__ << " vdDSNeutronShieldExit (VD81) not built" << std::endl;
+      }
     }
 
 
@@ -414,7 +422,11 @@ namespace mu2e {
       vdg->getGlobal(VirtualDetectorId::STM_UpStr) : CLHEP::Hep3Vector();
     CLHEP::Hep3Vector vdSTM_UpStrPositionInParent = vdSTM_UpStrPositionInMu2e - parentCenterInMu2e;
     if (verbosityLevel>0){
-      std::cout << __func__ << " vdSTM_UpStrPositionInMu2e = "<<vdSTM_UpStrPositionInMu2e<<std::endl;
+      if (vdSTM_UpStrBuilt) {
+        std::cout << __func__ << " vdSTM_UpStrPositionInMu2e = "<<vdSTM_UpStrPositionInMu2e<<std::endl;
+      } else {
+        std::cout << __func__ << " vdSTM_UpStr (VD86) not built" << std::endl;
+      }
     }
 
     //create a disk so we can subtract a space for the existing VD to fit inside (avoid overlaps)
