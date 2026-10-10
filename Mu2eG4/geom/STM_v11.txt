@@ -1480,6 +1480,9 @@ double stm.InnerShielding.leadClipped2.fromRefZ = 170.300;
 // ---- Back shielding -----------------------------------------------
 //
 bool    stm.BackShielding.build                    = true;
+// "BP" (5% boron in G4_POLYETHYLENE, 1.04 g/cm3) as in v09; the walls'
+// Polyethylene092B050d095 is the same nominal grade at 0.95 g/cm3.
+string  stm.BackShielding.BPmaterial               = "BP";
 double  stm.BackShielding.BPThick                  = 25.4;
 double  stm.BackShielding.BPLength                 = 1500;
 double  stm.BackShielding.BPHeight                 = 1000;
@@ -1489,21 +1492,51 @@ double  stm.BackShielding.ShieldingPipeGap         = 76.2;
 
 // ---- Electronic shielding -----------------------------------------
 //
-// The z position is anchored to the back of the right-front copper
-// lining; tune SiZcenter to move the components up and down-stream.
-// With SiZcenter = 0 the silicon grid's mid-plane sits flush with the
-// back of the front shielding right's copper lining, and the concrete's
-// downstream face sits GapToSi upstream of it. (In v09 the same values
-// put them against the lining's front instead, 12.7 mm further upstream.)
+// A concrete wall shielding the STM electronics rack, and silicon tile
+// grids behind it for radiation studies. Placed in the hall, not from
+// the shield house: v09's SiXcenter/SiYcenter/SiZcenter/ConcreteT/
+// GapToSi are not read here.
+//
+// The wall is lab standard D blocks (6 ft x 3 ft x 1.5 ft) stacked on
+// the floor, centered in x on the STM downstream structure rather than
+// on the DS axis: that structure spans -1044.3 to +390.8 mm about the
+// axis, so its center is xOffset = -326.75 mm (south faces of the blocks
+// at Mu2e x = -5145.15, north faces at -3316.35). Its downstream face is
+// 44.5 in west of the east wall's inner face, 4 in clear of the STM
+// downstream structure.
 bool    stm.ElectronicShielding.build              = true;
+double  stm.ElectronicShielding.xOffset            = -326.75;  // from the beam axis, +x north
+double  stm.ElectronicShielding.concrete.dx        = 1828.8;   // 6 ft, north-south
+double  stm.ElectronicShielding.concrete.dy        =  914.4;   // 3 ft, per block
+double  stm.ElectronicShielding.concrete.dz        =  457.2;   // 1.5 ft
+int     stm.ElectronicShielding.concrete.blockN    = 2;        // stacked upward
+double  stm.ElectronicShielding.concrete.blockGap  = 2.0;      // between stacked blocks
+double  stm.ElectronicShielding.concrete.fromGround = 0.0;     // bottom block on the floor
+double  stm.ElectronicShielding.concrete.downstreamFaceToWall = 1130.3;  // 44.5 in
+
+// Silicon tiles, SiGridX x SiGridY x SiGridZ each, in grids of nX x nY
+// sharing the concrete's x center, the bottom row fromGround above the
+// floor. One grid per gapsToConcrete entry, each entry the distance from
+// the concrete's downstream face to that grid's upstream face. From the
+// east wall's inner face, that puts
+//   grid 1  5 in behind the concrete: upstream face 1003.3 mm (39.5 in),
+//           downstream face 977.9 mm (38.5 in) from the wall;
+//   grid 2  38.5 in behind the concrete: upstream face 152.4 mm (6 in),
+//           downstream face 127.0 mm (5 in) from the wall.
+//
+// Both grids sit under the shield house's baseplate, whose bottom face
+// is at Mu2e y = -261.4 (its top is boreToBase = 236 mm below the beam
+// axis, and it is 25.4 mm thick). With the floor at y = -2312, nY = 14
+// (1778 mm) puts the top row at y = -534.0, 272.6 mm (10.7 in) below
+// that face; nX = 11 (1397 mm) is narrower than the baseplate's
+// 1435.1 mm.
 double  stm.ElectronicShielding.SiGridX            = 127.0;
 double  stm.ElectronicShielding.SiGridY            = 127.0;
 double  stm.ElectronicShielding.SiGridZ            = 25.4;
-double  stm.ElectronicShielding.SiXcenter          = -381.0;
-double  stm.ElectronicShielding.SiYcenter          = -1219.2;
-double  stm.ElectronicShielding.SiZcenter          = 0;
-double  stm.ElectronicShielding.ConcreteT          = 457.2;
-double  stm.ElectronicShielding.GapToSi            = 127;
+int     stm.ElectronicShielding.si.nX              = 11;
+int     stm.ElectronicShielding.si.nY              = 14;
+double  stm.ElectronicShielding.si.fromGround      = 0.0;
+vector<double> stm.ElectronicShielding.si.gapsToConcrete = {127.0, 977.9};  // 5 in, 38.5 in
 
 // ===================================================================
 // VIRTUAL DETECTORS

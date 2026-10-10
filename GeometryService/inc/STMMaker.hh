@@ -478,6 +478,7 @@ namespace mu2e {
     double  _BackS_dX;
     double  _BackS_dY;
     double  _BackSPipeGap;
+    std::string _BackSBPMaterial = "BP";  // read only in the hand-stacked geometry
 
     bool   _InnerShieldingBuild;
 
@@ -488,8 +489,19 @@ namespace mu2e {
     double   _ElectronicSSiXcenter;
     double   _ElectronicSSiYcenter;
     double   _ElectronicSSiZcenter;
-    double   _ElectronicSConcreteT;
-    double   _ElectronicSGapToSi;
+    double   _ElectronicSConcreteT = 0.;
+    double   _ElectronicSGapToSi = 0.;
+    // hand-stacked only
+    double   _ElectronicSXOffset = 0.;
+    CLHEP::Hep3Vector _ElectronicSConcreteDims;
+    int      _ElectronicSConcreteBlockN = 0;
+    double   _ElectronicSConcreteBlockGap = 0.;
+    double   _ElectronicSConcreteFromGround = 0.;
+    double   _ElectronicSConcreteToWall = 0.;
+    int      _ElectronicSSiNX = 0;
+    int      _ElectronicSSiNY = 0;
+    double   _ElectronicSSiFromGround = 0.;
+    std::vector<double> _ElectronicSSiGapsToConcrete;
 
 
     bool     _STM_AbsorberBuild;

@@ -1162,10 +1162,117 @@ namespace mu2e {
                               _BackS_dY,
                               _BackSPipeGap,
                               _BackSOffsetInMu2e,
-                              _BackSRotation));
+                              _BackSRotation,
+                              _BackSBPMaterial));
 
    ////////////////////////////////////////////////////////////////
    //STM Electronic Shielding
+
+    if (_handstacked) {
+      // Placed in the hall, not from the shield house: centered in x
+      // xOffset from the beam axis, standing fromGround above the floor,
+      // and set back from the east wall's inner face in z.
+      std::vector<CLHEP::Hep3Vector> concreteCenters;
+      std::vector<CLHEP::Hep3Vector> siGridCenters;
+      if (_ElectronicShieldingBuild) {
+        const double xCenter = BeamAxisAtEastWallInMu2e.x() + _ElectronicSXOffset;
+        const double floorY  = FloorAtEastWallInMu2e.y();
+        const double wallZ   = BeamAxisAtEastWallInMu2e.z();
+
+        // The blocks stack upward from the floor, blockGap apart, their
+        // downstream faces downstreamFaceToWall from the east wall.
+        const double cdy = _ElectronicSConcreteDims.y();
+        const double cdz = _ElectronicSConcreteDims.z();
+        const double concreteBackZ = wallZ - _ElectronicSConcreteToWall;
+        for (int i = 0; i < _ElectronicSConcreteBlockN; ++i) {
+          concreteCenters.push_back(CLHEP::Hep3Vector(
+            xCenter,
+            floorY + _ElectronicSConcreteFromGround + i*(cdy + _ElectronicSConcreteBlockGap) + cdy/2,
+            concreteBackZ - cdz/2));
+        }
+
+        // Each grid sits its gap behind the concrete's downstream face,
+        // face to face, sharing the concrete's x center. The grids must
+        // stay clear of each other and of the east wall.
+        const double siY = floorY + _ElectronicSSiFromGround + _ElectronicSSiNY*_ElectronicSSiGridY/2;
+        double prevBackZ = concreteBackZ;
+        for (size_t i = 0; i < _ElectronicSSiGapsToConcrete.size(); ++i) {
+          const double frontZ = concreteBackZ + _ElectronicSSiGapsToConcrete[i];
+          if (frontZ < prevBackZ || frontZ + _ElectronicSSiGridZ > wallZ) {
+            throw cet::exception("GEOM")
+              << "STMMaker: stm.ElectronicShielding.si.gapsToConcrete entry "
+              << i+1 << " (" << _ElectronicSSiGapsToConcrete[i] << " mm) puts"
+              << " that silicon grid into the concrete, the grid before it, or"
+              << " the east wall; the entries must increase by at least the"
+              << " tile thickness (" << _ElectronicSSiGridZ << " mm) and stay"
+              << " within " << _ElectronicSConcreteToWall - _ElectronicSSiGridZ
+              << " mm.\n";
+          }
+          siGridCenters.push_back(CLHEP::Hep3Vector(xCenter, siY, frontZ + _ElectronicSSiGridZ/2));
+          prevBackZ = frontZ + _ElectronicSSiGridZ;
+        }
+
+        // constructSTM places these in the downstream envelope, so each
+        // must lie inside it; touching its floor is allowed.
+        if (_stmDnStrEnvBuild) {
+          const CLHEP::Hep3Vector envHalf(_stmDnStrEnvHalfWidth,
+                                          _stmDnStrEnvHalfHeight,
+                                          _stmDnStrEnvHalfLength);
+          const CLHEP::Hep3Vector siHalf(_ElectronicSSiNX*_ElectronicSSiGridX/2,
+                                         _ElectronicSSiNY*_ElectronicSSiGridY/2,
+                                         _ElectronicSSiGridZ/2);
+          auto checkInEnvelope = [&](CLHEP::Hep3Vector const & center,
+                                     CLHEP::Hep3Vector const & half,
+                                     std::string const & what) {
+            // |d| + half <= envHalf on each axis is both faces inside.
+            const CLHEP::Hep3Vector d = center - _stmDnStrEnvPositionInMu2e;
+            const double tol = 1.e-6;
+            if (std::abs(d.x()) + half.x() > envHalf.x() + tol ||
+                std::abs(d.y()) + half.y() > envHalf.y() + tol ||
+                std::abs(d.z()) + half.z() > envHalf.z() + tol) {
+              throw cet::exception("GEOM")
+                << "STMMaker: the electronic shielding's " << what
+                << " (center " << center << ", half lengths " << half
+                << ") does not fit in the STM downstream envelope (center "
+                << _stmDnStrEnvPositionInMu2e << ", half lengths " << envHalf
+                << ").\n";
+            }
+          };
+          for (size_t i = 0; i < concreteCenters.size(); ++i) {
+            checkInEnvelope(concreteCenters[i], _ElectronicSConcreteDims/2,
+                            "concrete block " + std::to_string(i+1));
+          }
+          for (size_t i = 0; i < siGridCenters.size(); ++i) {
+            checkInEnvelope(siGridCenters[i], siHalf,
+                            "silicon grid " + std::to_string(i+1));
+          }
+        }
+
+        if (_verbosityLevel > 0) {
+          mf::LogInfo log("GEOM");
+          log << "STMMaker: electronic shielding in Mu2e coordinates:\n";
+          for (size_t i = 0; i < concreteCenters.size(); ++i) {
+            log << "  concrete block " << i+1 << " center " << concreteCenters[i] << "\n";
+          }
+          for (size_t i = 0; i < siGridCenters.size(); ++i) {
+            log << "  silicon grid " << i+1 << " center " << siGridCenters[i]
+                << ", " << wallZ - siGridCenters[i].z() - _ElectronicSSiGridZ/2
+                << " mm from the east wall\n";
+          }
+        }
+      }
+
+          stm._pSTMElectronicShieldingParams = std::unique_ptr<ElectronicShielding>
+          (new ElectronicShielding(_ElectronicShieldingBuild,
+                                   _ElectronicSConcreteDims/2,
+                                   concreteCenters,
+                                   CLHEP::Hep3Vector(_ElectronicSSiGridX,
+                                                     _ElectronicSSiGridY,
+                                                     _ElectronicSSiGridZ)/2,
+                                   _ElectronicSSiNX,
+                                   _ElectronicSSiNY,
+                                   siGridCenters));
+    } else {
           stm._pSTMElectronicShieldingParams = std::unique_ptr<ElectronicShielding>
           (new ElectronicShielding(_ElectronicShieldingBuild,
                                    _ElectronicSSiGridX,
@@ -1176,6 +1283,7 @@ namespace mu2e {
                                    _ElectronicSSiZcenter,
                                    _ElectronicSConcreteT,
                                    _ElectronicSGapToSi));
+    }
 
    ////////////////////////////////////////////////////////////////
    //STM Absorber Shielding, or the SSC front shield that replaces it
@@ -3052,6 +3160,12 @@ namespace mu2e {
     _BackS_dX             = _config.getDouble("stm.BackShielding.BackS_dX");
     _BackS_dY             = _config.getDouble("stm.BackShielding.BackS_dY");
     _BackSPipeGap         = _config.getDouble("stm.BackShielding.ShieldingPipeGap");
+    // Earlier geometries hard-code "BP", so only the hand-stacked one
+    // reads the material.
+    if (_handstacked) {
+      _BackSBPMaterial    = readStringIfBuilt(_config, "stm.BackShielding.BPmaterial",
+                                              _BackShieldingBuild);
+    }
 
     // FrontToWall against the house as built.
     //
@@ -3478,11 +3592,43 @@ namespace mu2e {
     _ElectronicSSiGridX    = _config.getDouble("stm.ElectronicShielding.SiGridX");
     _ElectronicSSiGridY    = _config.getDouble("stm.ElectronicShielding.SiGridY");
     _ElectronicSSiGridZ    = _config.getDouble("stm.ElectronicShielding.SiGridZ");
-    _ElectronicSSiXcenter  = _config.getDouble("stm.ElectronicShielding.SiXcenter");
-    _ElectronicSSiYcenter  = _config.getDouble("stm.ElectronicShielding.SiYcenter");
-    _ElectronicSSiZcenter  = _config.getDouble("stm.ElectronicShielding.SiZcenter");
-    _ElectronicSConcreteT  = _config.getDouble("stm.ElectronicShielding.ConcreteT");
-    _ElectronicSGapToSi    = _config.getDouble("stm.ElectronicShielding.GapToSi");
+    if (!_handstacked) {
+      // The earlier description: one block and one grid, placed from the
+      // front shielding.
+      _ElectronicSSiXcenter  = _config.getDouble("stm.ElectronicShielding.SiXcenter");
+      _ElectronicSSiYcenter  = _config.getDouble("stm.ElectronicShielding.SiYcenter");
+      _ElectronicSSiZcenter  = _config.getDouble("stm.ElectronicShielding.SiZcenter");
+      _ElectronicSConcreteT  = _config.getDouble("stm.ElectronicShielding.ConcreteT");
+      _ElectronicSGapToSi    = _config.getDouble("stm.ElectronicShielding.GapToSi");
+    }
+    else if (_ElectronicShieldingBuild) {
+      // The hand-stacked description: lab standard concrete blocks stacked
+      // on the hall floor and two silicon tile grids, all placed in the
+      // hall rather than from the shield house. Resolved in make(), where
+      // the hall's east wall is known.
+      _ElectronicSXOffset             = _config.getDouble("stm.ElectronicShielding.xOffset");
+      _ElectronicSConcreteDims        = CLHEP::Hep3Vector(
+        _config.getDouble("stm.ElectronicShielding.concrete.dx"),
+        _config.getDouble("stm.ElectronicShielding.concrete.dy"),
+        _config.getDouble("stm.ElectronicShielding.concrete.dz"));
+      _ElectronicSConcreteBlockN      = _config.getInt(   "stm.ElectronicShielding.concrete.blockN");
+      _ElectronicSConcreteBlockGap    = _config.getDouble("stm.ElectronicShielding.concrete.blockGap");
+      _ElectronicSConcreteFromGround  = _config.getDouble("stm.ElectronicShielding.concrete.fromGround");
+      _ElectronicSConcreteToWall      = _config.getDouble("stm.ElectronicShielding.concrete.downstreamFaceToWall");
+      _ElectronicSSiNX                = _config.getInt(   "stm.ElectronicShielding.si.nX");
+      _ElectronicSSiNY                = _config.getInt(   "stm.ElectronicShielding.si.nY");
+      _ElectronicSSiFromGround        = _config.getDouble("stm.ElectronicShielding.si.fromGround");
+      _config.getVectorDouble("stm.ElectronicShielding.si.gapsToConcrete",
+                              _ElectronicSSiGapsToConcrete);
+
+      if (_ElectronicSConcreteBlockN < 1 || _ElectronicSSiNX < 1 || _ElectronicSSiNY < 1) {
+        throw cet::exception("GEOM")
+          << "STMMaker: stm.ElectronicShielding needs at least one concrete"
+          << " block and one silicon tile in x and y (blockN = "
+          << _ElectronicSConcreteBlockN << ", si.nX = " << _ElectronicSSiNX
+          << ", si.nY = " << _ElectronicSSiNY << ").\n";
+      }
+    }
 
 
     // The SSC front shield replaces the absorber in the updated geometry,

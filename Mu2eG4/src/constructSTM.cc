@@ -4571,7 +4571,7 @@ namespace mu2e {
      G4ThreeVector stmBPWallInParent = STMShieldingRef + G4ThreeVector(BP_dX, BP_dY, houseBackZ + BP_thick/2 + PipeGap);
 
      finishNesting(BPWallPV,
-     BPMaterial,
+     findMaterialOrThrow(pBackShieldingParams.material()),
      0,
      stmBPWallInParent,
      parentInfo.logical,
@@ -4841,8 +4841,79 @@ namespace mu2e {
 
 
     /////////// Electronic Shielding ///////////////
+    //
+    // The hand-stacked description: lab standard concrete blocks stacked
+    // on the hall floor and silicon tile grids behind them, every center
+    // resolved in Mu2e coordinates by STMMaker.
 
-    if(pElectronicShieldingParams.build())
+    if(stmgh.handstacked() && pElectronicShieldingParams.build())
+   {
+     CLHEP::Hep3Vector const & concreteHalf = pElectronicShieldingParams.concreteHalfLengths();
+     G4Box* ConcreteBlock = new G4Box("ConcreteShieldBlock",
+                                      concreteHalf.x(), concreteHalf.y(), concreteHalf.z());
+     std::vector<CLHEP::Hep3Vector> const & concreteCenters =
+       pElectronicShieldingParams.concreteCentersInMu2e();
+     for (size_t i = 0; i < concreteCenters.size(); ++i) {
+       VolumeInfo ConcreteBlockPV;
+       ConcreteBlockPV.name  = "ConcreteShieldBlock" + std::to_string(i+1) + "PV";
+       ConcreteBlockPV.solid = ConcreteBlock;
+       finishNesting(ConcreteBlockPV,
+       ConcreteMaterial,
+       0,
+       concreteCenters[i] - parentCenterInMu2e,
+       parentInfo.logical,
+       0,
+       STMisVisible,
+       G4Colour::White(),
+       STMisSolid,
+       forceAuxEdgeVisible,
+       placePV,
+       doSurfaceCheck);
+     }
+
+     // Each grid is nX by nY tiles centered on its grid center.
+     CLHEP::Hep3Vector const & tileHalf = pElectronicShieldingParams.siTileHalfLengths();
+     G4Box* SiTile = new G4Box("SiGridS", tileHalf.x(), tileHalf.y(), tileHalf.z());
+     const int nX = pElectronicShieldingParams.siNX();
+     const int nY = pElectronicShieldingParams.siNY();
+     std::vector<CLHEP::Hep3Vector> const & gridCenters =
+       pElectronicShieldingParams.siGridCentersInMu2e();
+     for (size_t g = 0; g < gridCenters.size(); ++g) {
+       for (int i = 0; i < nY; ++i) {
+         for (int j = 0; j < nX; ++j) {
+           VolumeInfo SiTilePV;
+           SiTilePV.name  = "SiliconGrid" + std::to_string(g+1) + "_"
+                          + std::to_string(i*nX + j);
+           SiTilePV.solid = SiTile;
+           const G4ThreeVector tileOffset((2*j - (nX-1))*tileHalf.x(),
+                                          (2*i - (nY-1))*tileHalf.y(),
+                                          0.);
+           finishNesting(SiTilePV,
+           SiMaterial,
+           0,
+           gridCenters[g] + tileOffset - parentCenterInMu2e,
+           parentInfo.logical,
+           0,
+           STMisVisible,
+           G4Colour::White(),
+           STMisSolid,
+           forceAuxEdgeVisible,
+           placePV,
+           doSurfaceCheck);
+         }
+       }
+     }
+
+     if ( verbosityLevel > 0) {
+       cout << __func__ << " ElectronicShielding : "
+            << concreteCenters.size() << " concrete blocks and "
+            << gridCenters.size() << " silicon grids of "
+            << nX << " x " << nY << " tiles" << endl;
+     }
+   }
+
+    // The earlier description, placed from the front shielding.
+    else if(pElectronicShieldingParams.build())
    {
 
      const double SiGridX   = pElectronicShieldingParams.SiGridX();
