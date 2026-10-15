@@ -37,24 +37,18 @@ physics : {
       StepPointMCsTag  : "compressSTMDet:STMDet"
       SimParticlemvTag : "compressSTMDet"
 
-      # SubRun-level product written by Mu2eG4, so the label is the g4run module, NOT
-      # compressSTMDet. With it, steps are assigned to a crystal by volume name (exact);
-      # without it the module falls back to the x cut, which can mis-assign between the
-      # two crystals. Check detectorByVolume in the tree to see which was used.
-      PhysicalVolumesTag : "g4run"
-
-      # The volumes Mu2eWorld makes sensitive for STMDet. Change only if the geometry
-      # renames them.
-      HPGeCrystalVolumes : ["fHPGePV"]
-      LaBrCrystalVolumes : ["fLaBrPV"]
+      # Which crystal a step is in: inside the LaBr region is LaBr, everything else is
+      # HPGe. Only the FIXED crystal is described - the HPGe x offset is itself a scanned
+      # variable, so a bound placed on the HPGe would have to move campaign by campaign.
+      # These are loose region bounds in the empty space between the crystals, not tight
+      # cuts on either one.
+      LaBrRegionXMin : -4000.0
+      LaBrRegionZMin : 40900.0
 
       # Gap above which a new count starts, per detector. HPGe's recovery time is ~50 us;
       # LaBr's scintillation timescale is ~50 ns, so LaBr resolves arrivals HPGe merges.
       HPGeCoincidenceWindow : 50000.0
       LaBrCoincidenceWindow : 50.0
-
-      # Fallback x split, used only when the volume table is unavailable.
-      xBeamCentre : -3904.0
 
       # true reproduces HPGeTree's grouping and disables time clustering - for comparing
       # against the old modules, not for analysis.

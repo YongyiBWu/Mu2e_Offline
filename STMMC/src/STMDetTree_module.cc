@@ -77,16 +77,22 @@
 // -------------------
 // Every STMDet step is in one of the two crystals by construction: Mu2eWorld attaches the
 // sensitive detector by exact name match on fLaBrPV and fHPGePV only, so nothing else can
-// produce one. The only question is WHICH crystal, and the two methods differ in how they
-// answer it:
-//   * by VOLUME index (when the volume table is available) - exact.
-//   * by the x cut HPGeTree uses - a proxy. The HPGe is rotated 45 degrees and offset by
-//     offset_HPGe, so a crystal can extend across a plane fixed at the beam centre and have
-//     steps attributed to the wrong detector.
-// Which was used is recorded per row in "detectorByVolume" so a sample can never silently
-// mix the two conventions. A step matching neither configured crystal volume is therefore
-// unexpected: it is counted and reported, since it means the configured volume names do not
-// match the geometry that was actually run.
+// produce one. The only question is WHICH crystal.
+//
+// It is answered by testing the step position against the LABR region - x > LaBrRegionXMin
+// AND z > LaBrRegionZMin - everything else is HPGe. The asymmetry is deliberate. The LaBr
+// sits at a FIXED place inside its copper lining, so its region can be stated once and
+// stays valid; the HPGe x offset is itself a scannable variable, so a boundary
+// defined by where the HPGe is would have to move campaign by campaign and silently
+// mis-assign the moment it was not updated. Testing the fixed crystal and letting the other
+// take the remainder removes that failure mode.
+//
+// NOT from StepPointMC::volumeId(). That field is filled with the G4 touchable's
+// GetCopyNumber() (Mu2eG4SensitiveDetector.cc), and both crystals are single placements
+// with copy number 0 - so it carries no detector information at all, and it is NOT a key
+// into the PhysicalVolumeInfoMultiCollection. (SimParticle::startVolumeIndex() IS such a
+// key, filled from the same helper that builds that table, but it records where a PARTICLE
+// WAS BORN, which for a shower secondary is not where the step occurred.)
 //
 // The genealogy tree
 // ------------------
@@ -112,13 +118,11 @@
 #include "art/Framework/Core/EDAnalyzer.h"
 #include "art/Framework/Principal/Event.h"
 #include "art/Framework/Principal/Handle.h"
-#include "art/Framework/Principal/SubRun.h"
 #include "art/Framework/Services/Registry/ServiceHandle.h"
 #include "canvas/Utilities/InputTag.h"
 #include "cetlib_except/exception.h"
 #include "fhiclcpp/types/Atom.h"
 #include "fhiclcpp/types/OptionalAtom.h"
-#include "fhiclcpp/types/Sequence.h"
 #include "messagefacility/MessageLogger/MessageLogger.h"
 
 #include "art_root_io/TFileService.h"
@@ -126,7 +130,6 @@
 
 #include "Offline/GlobalConstantsService/inc/GlobalConstantsHandle.hh"
 #include "Offline/GlobalConstantsService/inc/ParticleDataList.hh"
-#include "Offline/MCDataProducts/inc/PhysicalVolumeInfoMultiCollection.hh"
 #include "Offline/MCDataProducts/inc/SimParticle.hh"
 #include "Offline/MCDataProducts/inc/StepPointMC.hh"
 
@@ -149,26 +152,21 @@ namespace mu2e {
         fhicl::Atom<art::InputTag> simParticlemvTag{
           Name("SimParticlemvTag"),
           Comment("The matching SimParticle collection, e.g. \"compressSTMDet\"")};
-        fhicl::OptionalAtom<art::InputTag> physicalVolumesTag{
-          Name("PhysicalVolumesTag"),
-          Comment("PhysicalVolumeInfoMultiCollection (SubRun), produced by g4run. When "
-                  "given, steps are assigned to a crystal by VOLUME NAME, which is exact. "
-                  "Omit it and the module falls back to the x cut HPGeTree uses, which can "
-                  "mis-assign between the two crystals - see the header comment.")};
-        fhicl::Sequence<std::string> hpgeCrystalVolumes{
-          Name("HPGeCrystalVolumes"),
-          Comment("Logical volume name(s) of the HPGe crystal. These are the volumes "
-                  "Mu2eWorld makes sensitive for STMDet."),
-          std::vector<std::string>({"fHPGePV"})};
-        fhicl::Sequence<std::string> labrCrystalVolumes{
-          Name("LaBrCrystalVolumes"),
-          Comment("Logical volume name(s) of the LaBr crystal."),
-          std::vector<std::string>({"fLaBrPV"})};
-        fhicl::Atom<double> xBeamCentre{
-          Name("xBeamCentre"),
-          Comment("Fallback x split when no volume table is available: HPGe is x < this, "
-                  "LaBr is x > this. Matches HPGeTree/LaBrTree."),
-          -3904.0};
+        // The LaBr REGION, in the Mu2e frame - a loose half-space around the LaBr crystal,
+        // not a tight bound on it. A step with x > LaBrRegionXMin AND z > LaBrRegionZMin is
+        // LaBr; anything else is HPGe. Only the FIXED crystal is described here; see the
+        // header for why the moving one is not. The region only has to separate the two
+        // crystals, so it can sit anywhere in the empty space between them.
+        fhicl::Atom<double> labrRegionXMin{
+          Name("LaBrRegionXMin"),
+          Comment("Steps with x above this (and z above LaBrRegionZMin) are LaBr [mm]."),
+          -4000.0};
+        fhicl::Atom<double> labrRegionZMin{
+          Name("LaBrRegionZMin"),
+          Comment("Steps with z above this (and x above LaBrRegionXMin) are LaBr [mm]. The "
+                  "LaBr sits some 270 mm downstream of the HPGe, so this separates them "
+                  "independently of the x test."),
+          40900.0};
 
         // Coincidence windows. One count per time cluster, so these set how finely a single
         // incident particle's deposits are resolved into separate waveforms.
@@ -206,7 +204,6 @@ namespace mu2e {
 
       using Parameters = art::EDAnalyzer::Table<Config>;
       explicit STMDetTree(const Parameters& conf);
-      void beginSubRun(const art::SubRun& sr) override;
       void analyze(const art::Event& event) override;
       void endJob() override;
 
@@ -226,19 +223,12 @@ namespace mu2e {
 
       art::ProductToken<StepPointMCCollection> stepsToken_;
       art::ProductToken<SimParticleCollection> simsToken_;
-      art::InputTag volumesTag_;
-      std::vector<std::string> hpgeVolumes_, labrVolumes_;
-      double xBeamCentre_ = -3904.0;
+      double labrRegionXMin_ = -4000.0;
+      double labrRegionZMin_ = 40900.0;
       double window_[kNDetectors] = {50000.0, 50.0};
       bool   groupByTopParent_ = false;
       bool   writeGenealogy_ = true;
       double minEdep_ = 0.0;
-
-      std::vector<std::string> volumeNames_;
-      // Volume indices resolved to each detector at beginSubRun; empty = fall back to x.
-      // Keyed on StepPointMC::VolumeId_type so the lookup needs no width conversion.
-      std::set<StepPointMC::VolumeId_type> hpgeIndices_, labrIndices_;
-      bool haveVolumeAssignment_ = false;
 
       GlobalConstantsHandle<ParticleDataList> pdt_;
 
@@ -248,7 +238,6 @@ namespace mu2e {
       // ---- ttree: one row per count ----
       int    runId_ = 0, subRunId_ = 0, eventId_ = 0;
       int    detector_ = 0;            // kHPGe / kLaBr
-      bool   detectorByVolume_ = false;// true: assigned by volume; false: by the x cut
       int    groupId_ = 0;             // SimParticle key of the attributed particle
       int    cluster_ = 0;             // 0-based time cluster within (detector, groupId)
       int    nClusters_ = 0;           // how many this (detector, groupId) produced
@@ -289,7 +278,11 @@ namespace mu2e {
       double gStartE_ = 0.0;
 
       // ---- endJob tallies ----
-      unsigned long nStepsSeen_ = 0, nStepsUnassigned_ = 0, nRows_ = 0, nDropped_ = 0;
+      // Steps whose SimParticle Ptr was null or unavailable, so there was nothing to
+      // attribute the energy to and the step was dropped. The only remaining way energy
+      // silently leaves the trees, and it should be 0 for a file compressed with
+      // noCompression / keepNGenerations:-1 - hence reported only when it is not.
+      unsigned long nStepsSeen_ = 0, nStepsNoParticle_ = 0, nRows_ = 0, nDropped_ = 0;
       double totalIon_[kNDetectors] = {0.0, 0.0};
       double totalNonIon_[kNDetectors] = {0.0, 0.0};
       unsigned long nRowsPerDet_[kNDetectors] = {0, 0};
@@ -298,8 +291,6 @@ namespace mu2e {
       unsigned long nGroupsPerDet_[kNDetectors] = {0, 0};
       unsigned long nSplitGroupsPerDet_[kNDetectors] = {0, 0};
       std::map<int, unsigned long> groupPdgRows_;
-      // Volume indices of steps matching neither crystal, for the diagnostic at endJob.
-      std::map<StepPointMC::VolumeId_type, unsigned long> unassignedVolumes_;
   };
 
   namespace {
@@ -310,9 +301,8 @@ namespace mu2e {
     art::EDAnalyzer(conf),
     stepsToken_(consumes<StepPointMCCollection>(conf().stepPointMCsTag())),
     simsToken_ (consumes<SimParticleCollection>(conf().simParticlemvTag())),
-    hpgeVolumes_(conf().hpgeCrystalVolumes()),
-    labrVolumes_(conf().labrCrystalVolumes()),
-    xBeamCentre_(conf().xBeamCentre()),
+    labrRegionXMin_(conf().labrRegionXMin()),
+    labrRegionZMin_(conf().labrRegionZMin()),
     groupByTopParent_(conf().groupByTopParentInDetector()),
     writeGenealogy_(conf().writeGenealogy()),
     minEdep_(conf().minEdep())
@@ -326,9 +316,6 @@ namespace mu2e {
           << window_[d] << " ns). A zero or negative window would make every step its own "
           << "count.";
 
-    art::InputTag vt;
-    if (conf().physicalVolumesTag(vt)) volumesTag_ = vt;
-
     art::ServiceHandle<art::TFileService> tfs;
 
     ttree = tfs->make<TTree>("ttree", "STM crystal counts (time-clustered deposits)");
@@ -337,7 +324,6 @@ namespace mu2e {
     ttree->Branch("event",  &eventId_,  "event/I");
 
     ttree->Branch("detector",         &detector_,         "detector/I");
-    ttree->Branch("detectorByVolume", &detectorByVolume_, "detectorByVolume/O");
 
     ttree->Branch("groupId",          &groupId_,          "groupId/I");
     ttree->Branch("cluster",          &cluster_,          "cluster/I");
@@ -396,52 +382,6 @@ namespace mu2e {
     }
   }
 
-  void STMDetTree::beginSubRun(const art::SubRun& sr) {
-    volumeNames_.clear();
-    hpgeIndices_.clear();
-    labrIndices_.clear();
-    haveVolumeAssignment_ = false;
-    if (volumesTag_.label().empty()) return;
-
-    art::Handle<PhysicalVolumeInfoMultiCollection> volsHandle;
-    if (!sr.getByLabel(volumesTag_, volsHandle)) {
-      mf::LogWarning("STMDetTree")
-        << "PhysicalVolumesTag " << volumesTag_ << " not found in this SubRun; falling back "
-        << "to the x cut for detector assignment. See detectorByVolume in the tree.";
-      return;
-    }
-
-    for (const PhysicalVolumeInfoSingleStage& stage : *volsHandle) {
-      for (const auto& entry : stage) {
-        const unsigned idx = entry.first.asUint();
-        if (volumeNames_.size() <= idx) volumeNames_.resize(idx + 1);
-        volumeNames_[idx] = entry.second.name();
-      }
-    }
-
-    for (StepPointMC::VolumeId_type i = 0; i < volumeNames_.size(); ++i) {
-      for (const std::string& n : hpgeVolumes_)
-        if (volumeNames_[i] == n) hpgeIndices_.insert(i);
-      for (const std::string& n : labrVolumes_)
-        if (volumeNames_[i] == n) labrIndices_.insert(i);
-    }
-
-    // Both crystals must resolve: assigning one by volume and the other by x would put the
-    // two detectors on different definitions within a single file, which is worse than
-    // using the proxy consistently.
-    haveVolumeAssignment_ = !hpgeIndices_.empty() && !labrIndices_.empty();
-    if (!haveVolumeAssignment_)
-      mf::LogWarning("STMDetTree")
-        << "Could not resolve both crystal volumes in the volume table (HPGe matched "
-        << hpgeIndices_.size() << ", LaBr matched " << labrIndices_.size()
-        << "); falling back to the x cut. Check HPGeCrystalVolumes / LaBrCrystalVolumes "
-        << "against the geometry actually used.";
-    else
-      mf::LogInfo("STMDetTree")
-        << "Detector assignment by volume: HPGe " << hpgeIndices_.size()
-        << " volume(s), LaBr " << labrIndices_.size() << " volume(s).";
-  }
-
   double STMDetTree::kineticEnergy(const CLHEP::Hep3Vector& p, int pdgId) const {
     // An unknown pdgId (an exotic ion, say) has no ParticleDataList entry; treat it as
     // massless rather than aborting the job, since this is a plotting convenience and the
@@ -455,18 +395,13 @@ namespace mu2e {
     return std::sqrt(p.mag2() + mass * mass) - mass;
   }
 
-  // Which crystal a step is in. Returns -1 only when volume assignment is active and the
-  // step matched neither configured crystal - which should not happen, since STMDet is
-  // attached to those volumes alone, so it means the names are wrong for this geometry.
-  // The x-cut fallback always returns one of the two: it cannot detect that case.
+  // Which crystal a step is in: inside the LaBr region is LaBr, everything else is HPGe.
+  // Total by construction - every STMDet step is in one crystal or the other, and only the
+  // fixed crystal is described, so there is no "neither" outcome. See the header for why
+  // the test is one-sided.
   int STMDetTree::detectorForStep(const StepPointMC& step) const {
-    if (haveVolumeAssignment_) {
-      const StepPointMC::VolumeId_type vid = step.volumeId();
-      if (hpgeIndices_.count(vid)) return kHPGe;
-      if (labrIndices_.count(vid)) return kLaBr;
-      return -1;
-    }
-    return (step.position().x() < xBeamCentre_) ? kHPGe : kLaBr;
+    const CLHEP::Hep3Vector& pos = step.position();
+    return (pos.x() > labrRegionXMin_ && pos.z() > labrRegionZMin_) ? kLaBr : kHPGe;
   }
 
   // Walk from `particle` up to the genealogy root, writing one row per ancestor. The caller
@@ -537,17 +472,12 @@ namespace mu2e {
     for (const StepPointMC& step : steps) {
       ++nStepsSeen_;
       const int det = detectorForStep(step);
-      if (det < 0) {
-        ++nStepsUnassigned_;
-        ++unassignedVolumes_[step.volumeId()];
-        continue;
-      }
 
       art::Ptr<SimParticle> particle = step.simParticle();
       if (particle.isNull() || !particle.isAvailable()) {
         // Without the SimParticle there is nothing to group by; counted so the totals stay
         // honest rather than silently losing the energy.
-        ++nStepsUnassigned_;
+        ++nStepsNoParticle_;
         continue;
       }
 
@@ -663,7 +593,6 @@ namespace mu2e {
         if (minEdep_ > 0.0 && totalEdep_ < minEdep_) { ++nDropped_; continue; }
 
         detector_         = det;
-        detectorByVolume_ = haveVolumeAssignment_;
         groupId_          = gid;
         cluster_          = static_cast<int>(ci);
         nClusters_        = static_cast<int>(clusters.size());
@@ -722,13 +651,12 @@ namespace mu2e {
         << (groupByTopParent_
               ? "top parent within STMDet, NO time clustering (HPGeTree compatibility)"
               : "genealogy root, split into time clusters") << "\n"
-        << "detector assignment      : "
-        << (haveVolumeAssignment_ ? "by volume" : "by x cut (proxy)") << "\n";
+        << "LaBr region              : x > " << labrRegionXMin_ << " mm and z > "
+        << labrRegionZMin_ << " mm (everything else is HPGe)\n";
     if (!groupByTopParent_)
       log << "coincidence windows      : HPGe " << window_[kHPGe] << " ns, LaBr "
           << window_[kLaBr] << " ns\n";
     log << "STMDet steps seen        : " << nStepsSeen_ << "\n"
-        << "  not assigned to either : " << nStepsUnassigned_ << "\n"
         << "rows (counts) written    : " << nRows_ << "\n";
     if (nDropped_)
       log << "  dropped below MinEdep  : " << nDropped_ << "\n";
@@ -744,22 +672,21 @@ namespace mu2e {
     for (const auto& [pdg, n] : groupPdgRows_)
       log << "  " << pdg << ": " << n << "\n";
 
-    // STMDet is attached to the two crystal volumes alone, so every step should match one
-    // of them. Any that did not means the configured names do not describe the geometry
-    // that was run, and those steps' energy is missing from the trees.
-    if (!unassignedVolumes_.empty()) {
-      log << "\nWARNING: " << nStepsUnassigned_ << " step(s) matched neither configured "
-          << "crystal volume, and their energy is NOT in the trees. STMDet is attached only "
-          << "to the crystals, so this means HPGeCrystalVolumes / LaBrCrystalVolumes do not "
-          << "match this geometry. Volume indices seen:\n";
-      for (const auto& [idx, n] : unassignedVolumes_) {
-        log << "  idx " << idx;
-        if (idx < volumeNames_.size() && !volumeNames_[idx].empty())
-          log << " (" << volumeNames_[idx] << ")";
-        log << ": " << n << " step(s)\n";
-      }
-    }
-    log << "=========================================\n";
+    // Should be zero: the compression keeps every SimParticle, so every step should resolve
+    // one. Reported only when it is not, since this is the one remaining way a step's energy
+    // leaves the trees without appearing anywhere.
+    if (nStepsNoParticle_)
+      log << "\nWARNING: " << nStepsNoParticle_ << " of " << nStepsSeen_ << " step(s) had no "
+          << "usable SimParticle, and their energy is NOT in the trees. Expected 0 for a "
+          << "file compressed with noCompression / keepNGenerations:-1, so check the "
+          << "compression settings of the job that produced the input.\n";
+
+    // Every step lands in one detector or the other, so a wrong region bound does not show
+    // up as a failure - it shows up as counts in the wrong column.
+    log << "\nThe LaBr region above decides the split; nothing falls outside it. After a "
+        << "geometry change, check the per-detector counts against expectation - a bad "
+        << "bound migrates counts between the two rather than erroring.\n"
+        << "=========================================\n";
   }
 
 } // namespace mu2e
