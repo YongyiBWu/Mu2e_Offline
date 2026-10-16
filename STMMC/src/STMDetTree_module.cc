@@ -96,14 +96,19 @@
 //
 // The genealogy tree
 // ------------------
-// For each emitted count, walk particle->parent() to the root and write one row per link,
-// recording each ancestor's species, creation process, birth volume, and BOTH its start and
-// end point in space and time. Both endpoints matter: a back-trace draws a segment per
-// ancestor, and with start points alone the deepest ancestor has nothing to draw to.
+// For each emitted count, ttree_genealogy holds the TREE of particles behind it: every
+// particle that deposited in the cluster, and every ancestor of those up to the root, each
+// recorded exactly once. Each row carries the particle's species, creation process, birth
+// volume, and BOTH its start and end point in space and time - both endpoints, because a
+// back-trace draws a segment per particle and start points alone leave the last one with
+// nothing to draw to.
 //
-// The chain is written once per EMITTED ROW rather than once per step, so a shower's tens of
-// steps do not repeat it; every cluster of one root carries the same chain, which is correct
-// since they share an ancestry, and lets a row be plotted without a second lookup.
+// A cluster aggregates steps from many particles whose chains share most of their length,
+// so each depositor's walk stops at the first particle already recorded for that cluster.
+// The result is the union of the chains with no edge repeated, which draws as a tree rather
+// than as overlapping paths. Rebuild the topology from trackId/parentId; `depth` counts
+// generations from whichever depositor first reached a particle, so it orders one branch
+// but not the merged tree.
 //
 // Yongyi Wu, Oct. 2026
 
@@ -214,12 +219,15 @@ namespace mu2e {
         double time = 0.0;
         double ionizing = 0.0, nonIonizing = 0.0, total = 0.0;
         double x = 0.0, y = 0.0, z = 0.0;
+        // The particle that deposited this step, kept so the genealogy can be walked from
+        // every depositor in a cluster rather than from the attributed particle alone.
+        art::Ptr<SimParticle> particle;
       };
 
       int detectorForStep(const StepPointMC& step) const;
       // Kinetic energy from a momentum vector and the species' rest mass.
       double kineticEnergy(const CLHEP::Hep3Vector& p, int pdgId) const;
-      void fillGenealogy(const art::Ptr<SimParticle>& particle);
+      void fillGenealogy(const std::vector<StepInfo>& stepList, size_t begin, size_t end);
 
       art::ProductToken<StepPointMCCollection> stepsToken_;
       art::ProductToken<SimParticleCollection> simsToken_;
@@ -267,7 +275,9 @@ namespace mu2e {
       int    gDetector_ = 0;
       int    gGroupId_ = 0;
       int    gCluster_ = 0;            // with the above, joins to exactly one ttree row
-      int    gDepth_ = 0;              // 1 = parent, 2 = grandparent, ...
+      int    gDepth_ = 0;              // 0 = a depositor, 1 = its parent, ...
+      int    gTrackId_ = 0;            // this particle's SimParticle key
+      int    gParentId_ = -1;          // its parent's key, or -1 at the root
       int    gPdgId_ = 0;
       int    gCreationCode_ = 0;
       unsigned gStartVolumeIndex_ = 0;
@@ -362,6 +372,10 @@ namespace mu2e {
       gtree->Branch("groupId",  &gGroupId_,  "groupId/I");
       gtree->Branch("cluster",  &gCluster_,  "cluster/I");
       gtree->Branch("depth",    &gDepth_,    "depth/I");
+      // trackId/parentId rebuild the topology directly: a cluster's chains are merged and
+      // deduplicated, so depth alone no longer orders a single path.
+      gtree->Branch("trackId",  &gTrackId_,  "trackId/I");
+      gtree->Branch("parentId", &gParentId_, "parentId/I");
 
       gtree->Branch("pdgId",            &gPdgId_,            "pdgId/I");
       gtree->Branch("creationCode",     &gCreationCode_,     "creationCode/I");
@@ -410,36 +424,70 @@ namespace mu2e {
   // Both the start and end point of every ancestor are recorded, not just the start: a
   // back-trace draws one segment per link, and the deepest ancestor would otherwise have no
   // endpoint to draw to.
-  void STMDetTree::fillGenealogy(const art::Ptr<SimParticle>& particle) {
+  // Write the genealogy TREE of one cluster: every particle that deposited in it, and
+  // every ancestor of those, each recorded exactly once.
+  //
+  // A cluster aggregates steps from many particles - a shower has tens - whose chains share
+  // most of their length. Walking each depositor independently would re-record those shared
+  // ancestors once per branch, so each walk stops as soon as it reaches a particle already
+  // written: the rest of that chain is, by construction, already in the tree. What comes
+  // out is the union of the chains with no edge repeated, which a drawing script can render
+  // as a tree without overlapping paths.
+  //
+  // `depth` is the generation count from the DEPOSITOR the walk started at, so the same
+  // ancestor reached by a longer branch keeps the depth of whichever branch recorded it
+  // first. Use the parent/child positions to rebuild the topology; depth alone is only a
+  // rough ordering once branches have different lengths.
+  void STMDetTree::fillGenealogy(const std::vector<StepInfo>& stepList,
+                                 size_t begin, size_t end) {
     if (!gtree) return;
 
-    art::Ptr<SimParticle> cur = particle;
-    int depth = 0;
-    while (cur->hasParent() && cur->parent().isAvailable()) {
-      cur = cur->parent();
-      ++depth;
-      if (depth > 10000)
-        throw cet::exception("STMDetTree")
-          << "Genealogy walk exceeded 10000 generations in event " << eventId_
-          << "; the parent links are cyclic.";
+    // Particles already written for THIS cluster. Keyed on the SimParticle key, which is
+    // unique within the event.
+    std::set<cet::map_vector_key> written;
 
-      gDepth_            = depth;
-      gPdgId_            = cur->pdgId();
-      gCreationCode_     = static_cast<int>(cur->creationCode().id());
-      gStartVolumeIndex_ = cur->startVolumeIndex();
-      gStartTime_        = cur->startGlobalTime();
-      gEndTime_          = cur->endGlobalTime();
-      gStartX_ = cur->startPosition().x();
-      gStartY_ = cur->startPosition().y();
-      gStartZ_ = cur->startPosition().z();
-      gEndX_   = cur->endPosition().x();
-      gEndY_   = cur->endPosition().y();
-      gEndZ_   = cur->endPosition().z();
-      gStartPx_ = cur->startMomentum().x();
-      gStartPy_ = cur->startMomentum().y();
-      gStartPz_ = cur->startMomentum().z();
-      gStartE_  = kineticEnergy(cur->startMomentum().vect(), gPdgId_);
-      gtree->Fill();
+    for (size_t i = begin; i < end; ++i) {
+      art::Ptr<SimParticle> cur = stepList[i].particle;
+      if (cur.isNull() || !cur.isAvailable()) continue;
+
+      // The depositor itself is the start of a branch, so record it before walking up:
+      // without it the chain would begin at its parent and the deposit would be orphaned.
+      int depth = 0;
+      while (true) {
+        if (written.count(cur->id())) break;   // this branch has merged into a known one
+        written.insert(cur->id());
+
+        gDepth_            = depth;
+        gPdgId_            = cur->pdgId();
+        gCreationCode_     = static_cast<int>(cur->creationCode().id());
+        gStartVolumeIndex_ = cur->startVolumeIndex();
+        gStartTime_        = cur->startGlobalTime();
+        gEndTime_          = cur->endGlobalTime();
+        gStartX_ = cur->startPosition().x();
+        gStartY_ = cur->startPosition().y();
+        gStartZ_ = cur->startPosition().z();
+        gEndX_   = cur->endPosition().x();
+        gEndY_   = cur->endPosition().y();
+        gEndZ_   = cur->endPosition().z();
+        gStartPx_ = cur->startMomentum().x();
+        gStartPy_ = cur->startMomentum().y();
+        gStartPz_ = cur->startMomentum().z();
+        gStartE_  = kineticEnergy(cur->startMomentum().vect(), gPdgId_);
+        // The particle's own key and its parent's, so the topology can be rebuilt without
+        // relying on depth ordering.
+        gTrackId_  = static_cast<int>(cur->id().asUint());
+        gParentId_ = (cur->hasParent() && cur->parent().isAvailable())
+                       ? static_cast<int>(cur->parent()->id().asUint()) : -1;
+        gtree->Fill();
+
+        if (!cur->hasParent() || !cur->parent().isAvailable()) break;
+        cur = cur->parent();
+        ++depth;
+        if (depth > 10000)
+          throw cet::exception("STMDetTree")
+            << "Genealogy walk exceeded 10000 generations in event " << eventId_
+            << "; the parent links are cyclic.";
+      }
     }
   }
 
@@ -540,6 +588,7 @@ namespace mu2e {
       s.x = step.position().x();
       s.y = step.position().y();
       s.z = step.position().z();
+      s.particle = particle;
       byGroup[{det, gid}].push_back(s);
     }
 
@@ -557,6 +606,16 @@ namespace mu2e {
       // Cluster boundaries: a new cluster starts wherever the gap to the previous step
       // exceeds this detector's window. In the HPGeTree-compatibility mode clustering is
       // disabled outright, so the old one-row-per-top-parent output is reproduced.
+      //
+      // Note the scope: stepList holds ONE (detector, groupId) pair, so this only ever
+      // splits a single incident particle's own deposits. Steps from different roots are
+      // never merged, however close in time - with one GenParticle per event there is no
+      // physical timing between roots, so a coincidence there would be an artifact of how
+      // the generator seeded them and would make the rate depend on MC bookkeeping. The
+      // window therefore answers only "did THIS particle's energy arrive in one burst or
+      // several", which is a real question (prompt shower vs. delayed neutron capture) and
+      // is stable under regeneration. True inter-particle pileup is not modelled here and
+      // cannot be: it needs a beam time structure imposed across events downstream.
       const double window = window_[det];
       std::vector<std::pair<size_t, size_t>> clusters;   // [begin, end)
       size_t begin = 0;
@@ -633,12 +692,12 @@ namespace mu2e {
         totalNonIon_[det] += nonIon;
         ++groupPdgRows_[gPdg];
 
-        // One chain per emitted row. Written after the row so a dropped row writes no
-        // chain, keeping the two trees joinable without a dangling-key check.
+        // The genealogy tree of this cluster. Written after the row so a dropped row writes
+        // no chain, keeping the two trees joinable without a dangling-key check.
         if (writeGenealogy_) {
           gRunId_ = runId_; gSubRunId_ = subRunId_; gEventId_ = eventId_;
           gDetector_ = det; gGroupId_ = gid; gCluster_ = static_cast<int>(ci);
-          fillGenealogy(group);
+          fillGenealogy(stepList, b, e);
         }
       }
     }
